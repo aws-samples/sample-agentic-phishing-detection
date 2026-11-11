@@ -259,6 +259,6 @@ def test_urlopen_refuses_other_schemes_and_hosts(url, monkeypatch):
     def no_network(*args, **kwargs):
         raise AssertionError("must not open a connection")
 
-    monkeypatch.setattr(bv, "HTTPSConnection", no_network)
+    monkeypatch.setattr(bv._HTTP, "request", no_network)
     with pytest.raises(ValueError, match="refusing"):
         bv.urlopen(bv.Request(url), timeout=bv.HTTP_TIMEOUT_S)

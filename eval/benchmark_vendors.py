@@ -24,12 +24,13 @@ import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from http.client import HTTPSConnection
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request
 from urllib.response import addinfourl
+
+import urllib3
 
 logger = logging.getLogger("benchmark_vendors")
 
@@ -49,6 +50,7 @@ URLSCAN_VISIBILITY = "unlisted"
 # The only hosts this script talks to. The scanned URL is sent as data, never fetched here.
 ALLOWED_HOSTS = frozenset({"www.virustotal.com", "urlscan.io"})
 HTTP_TIMEOUT_S = 30
+_HTTP = urllib3.PoolManager()  # urllib3 2.x: CERT_REQUIRED and system CA bundle
 RETRIES_ON_429 = 3
 BACKOFF_S = 15.0
 MAX_BACKOFF_S = 300.0
@@ -84,16 +86,20 @@ def urlopen(request: Request, timeout: float) -> addinfourl:
     parts = urlsplit(request.full_url)
     if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS:
         raise ValueError(f"refusing to call {parts.scheme}://{parts.hostname}")
-    path = parts.path + (f"?{parts.query}" if parts.query else "")
-    conn = HTTPSConnection(parts.hostname, timeout=timeout)
     try:
-        conn.request(
-            request.get_method(), path, body=request.data, headers=dict(request.header_items())
+        # urllib3 verifies certificates by default; no redirects or retries (handled above).
+        response = _HTTP.request(
+            request.get_method(),
+            request.full_url,
+            body=request.data,
+            headers=dict(request.header_items()),
+            timeout=timeout,
+            retries=False,
+            redirect=False,
         )
-        response = conn.getresponse()
-        body = response.read()
-    finally:
-        conn.close()
+    except urllib3.exceptions.HTTPError as exc:
+        raise URLError(exc) from exc
+    body = response.data
     if not 200 <= response.status < 300:
         raise HTTPError(
             request.full_url, response.status, response.reason, response.headers, io.BytesIO(body)
