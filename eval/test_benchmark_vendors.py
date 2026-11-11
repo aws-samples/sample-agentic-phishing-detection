@@ -249,3 +249,16 @@ def test_key_is_never_logged(http, tmp_path, monkeypatch, caplog):
     for path in out.rglob("*"):
         if path.is_file():
             assert KEY not in path.read_text()
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "http://urlscan.io/api/v1/scan/", "https://evil.example/api/v3/urls"],
+)
+def test_urlopen_refuses_other_schemes_and_hosts(url, monkeypatch):
+    def no_network(*args, **kwargs):
+        raise AssertionError("must not open a connection")
+
+    monkeypatch.setattr(bv, "HTTPSConnection", no_network)
+    with pytest.raises(ValueError, match="refusing"):
+        bv.urlopen(bv.Request(url), timeout=bv.HTTP_TIMEOUT_S)

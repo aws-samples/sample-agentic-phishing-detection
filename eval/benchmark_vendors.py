@@ -17,16 +17,19 @@ import argparse
 import csv
 import hashlib
 import importlib.util
+import io
 import json
 import logging
 import os
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from http.client import HTTPSConnection
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urlencode, urlsplit
+from urllib.request import Request
+from urllib.response import addinfourl
 
 logger = logging.getLogger("benchmark_vendors")
 
@@ -43,6 +46,8 @@ URLSCAN_BASE = "https://urlscan.io/api/v1"
 # Never "public": a public urlscan scan publishes the URL and its screenshot to everyone.
 # Deliberately not a CLI flag.
 URLSCAN_VISIBILITY = "unlisted"
+# The only hosts this script talks to. The scanned URL is sent as data, never fetched here.
+ALLOWED_HOSTS = frozenset({"www.virustotal.com", "urlscan.io"})
 HTTP_TIMEOUT_S = 30
 RETRIES_ON_429 = 3
 BACKOFF_S = 15.0
@@ -69,6 +74,31 @@ def _error_message(body: dict) -> str:
     if isinstance(err, dict):
         return str(err.get("message") or err.get("code") or "")
     return str(body.get("message") or body.get("description") or err or "")
+
+
+def urlopen(request: Request, timeout: float) -> addinfourl:
+    """HTTPS-only stand-in for urllib's urlopen: no file:// or other schemes, fixed hosts.
+
+    Raises HTTPError for non-2xx answers, like urllib, so callers handle both the same way.
+    """
+    parts = urlsplit(request.full_url)
+    if parts.scheme != "https" or parts.hostname not in ALLOWED_HOSTS:
+        raise ValueError(f"refusing to call {parts.scheme}://{parts.hostname}")
+    path = parts.path + (f"?{parts.query}" if parts.query else "")
+    conn = HTTPSConnection(parts.hostname, timeout=timeout)
+    try:
+        conn.request(
+            request.get_method(), path, body=request.data, headers=dict(request.header_items())
+        )
+        response = conn.getresponse()
+        body = response.read()
+    finally:
+        conn.close()
+    if not 200 <= response.status < 300:
+        raise HTTPError(
+            request.full_url, response.status, response.reason, response.headers, io.BytesIO(body)
+        )
+    return addinfourl(io.BytesIO(body), response.headers, request.full_url, response.status)
 
 
 def _retry_after(exc: HTTPError) -> float | None:
@@ -121,10 +151,10 @@ class _Client:
         all_headers = {"Accept": "application/json", **(headers or {}), **self._auth_headers()}
         for attempt in range(RETRIES_ON_429 + 1):
             self._throttle()
-            # Fixed https:// base URLs only; the scanned URL is never fetched by this code.
+            # urlopen above is HTTPS-only and limited to ALLOWED_HOSTS.
             request = Request(url, data=data, headers=all_headers, method=method)  # noqa: S310
             try:
-                with urlopen(request, timeout=HTTP_TIMEOUT_S) as response:  # noqa: S310
+                with urlopen(request, timeout=HTTP_TIMEOUT_S) as response:
                     return response.status, json.loads(response.read() or b"{}")
             except HTTPError as exc:
                 if exc.code == 429 and attempt < RETRIES_ON_429:
