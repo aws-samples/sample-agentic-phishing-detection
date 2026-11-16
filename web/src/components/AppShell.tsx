@@ -71,7 +71,7 @@ function Brand() {
         <ShieldHalf className="h-5 w-5" />
       </span>
       <div className="min-w-0 leading-tight">
-        <p className="text-sm font-extrabold tracking-tight text-fg">Multi-Agent Phishing URL Detection</p>
+        <p className="text-sm font-extrabold tracking-tight text-fg">Agentic Phishing URL Detection</p>
         <p className="text-[10px] font-medium uppercase tracking-widest text-muted">Analyst Console</p>
       </div>
     </div>
