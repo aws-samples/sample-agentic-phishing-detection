@@ -1,6 +1,6 @@
 # Agentic Phishing URL Detection on Amazon Bedrock AgentCore
 
-**Paste a link and get an explained phishing verdict in about 20 seconds.** Three specialist agents check the link, the page and the page's code at the same time in an isolated cloud browser. An orchestrator agent weighs their evidence, gives you the verdict first and then writes a plain-language report. Everything runs in your own AWS account.
+**Paste a link and get an explained phishing verdict in about a minute.** Three specialist agents check the link, the page and the page's code at the same time in an isolated cloud browser. An orchestrator agent weighs their evidence, gives you the verdict first and then writes a plain-language report. Everything runs in your own AWS account.
 
 ![License: MIT-0](https://img.shields.io/badge/license-MIT--0-green) ![Python 3.13](https://img.shields.io/badge/python-3.13-blue) ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK%20%28Python%29-orange) ![Amazon Bedrock AgentCore](https://img.shields.io/badge/Amazon%20Bedrock-AgentCore-01A88D) ![Strands Agents](https://img.shields.io/badge/agents-Strands-blueviolet)
 
@@ -24,6 +24,42 @@ The preview above is a silent 25-second excerpt. Watch the [full 4-minute demo w
 ## Measured results
 
 <!-- BENCH:START -->
+Measured on 2026-11-16: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
+
+| Phishing caught | Legitimate sites flagged | Scan time, median | Model cost per scan, median |
+| :---: | :---: | :---: | :---: |
+| **96.6%** | **5.6%** | **59 s** | **$0.10** |
+| 282 of 292 live phishing URLs | 14 of 252 live legitimate sites | p90 77 s, p99 95 s | p90 $0.13 |
+
+| Accuracy, 544 live URLs | Value |
+| --- | --- |
+| Phishing caught (recall) | **96.6%** (282 of 292) |
+| Phishing flagged at any risk (phishing or suspicious) | 99.3% (290 of 292) |
+| Legitimate sites flagged (false positive rate) | 5.6% (14 of 252) |
+| Precision | 95.3% |
+| Accuracy | 95.6% |
+| F1 | 0.959 |
+| Legitimate sites judged `unknown` (action `warn`) | 23 of 252 |
+
+| Speed and cost | Median | p90 | p99 |
+| --- | --- | --- | --- |
+| Scan time, worker start to verdict | 59 s | 77 s | 95 s |
+| Model cost per scan, 548 model-backed scans | $0.104 | $0.126 | |
+| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (9%), no model cost | | |
+| Throughput at `scanConcurrency` 25 | 550 URLs in 25.5 minutes (about 22 a minute) | | |
+| Total model cost, 600 URLs | $56.41 (mean $0.094 per URL) | | |
+
+<details>
+<summary>How this was measured</summary>
+
+- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (8 phishing, 48 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
+- **Caught** means a `phishing` verdict, or `suspicious` with risk 50 or more (action `warn` or `block`). A pre-publish gate that holds `warn` for a person catches all of them.
+- **Models.** Orchestrator Claude Opus 5.5 (`us.anthropic.claude-opus-5-5`) on AgentCore Harness, specialists Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5`).
+- **Model cost** is the Bedrock token cost of every model call in a scan (specialists, verdict and report), from each scan's `cost_usd`. AgentCore, Lambda and other services are in [Cost](#cost).
+- **Misses.** Most of the 10 missed phishing pages could not be seen (the browser was refused, or the host returned an error page) and scored just under risk 50. The 14 flagged legitimate sites are mostly gambling doorways, scam trading portals and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
+- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack held earlier scans, so about a quarter of the scans recalled a similar past scan. [docs/evaluation.md](docs/evaluation.md) explains how to measure on your own labelled URLs.
+
+</details>
 <!-- BENCH:END -->
 
 ## What it does
@@ -129,9 +165,9 @@ A pre-publish gate holds a link for a person to review when the scan `FAILED`, t
 | Item                    | Amount                     | Basis                                                      |
 | ----------------------- | -------------------------- | ---------------------------------------------------------- |
 | Deployed stacks, idle   | About $14 to $15 per month | Estimate, mostly the AWS WAF web ACL; Cost Explorer agreed |
-| Model tokens per scan   | $0.090 mean                | Measured, current default, 407 live URLs (2026-11-03)      |
+| Model tokens per scan   | $0.103 mean                | Measured, current default, 548 model-backed scans (2026-11-16) |
 | Other services per scan | About $0.015               | Estimate from usage measured on the earlier default        |
-| 1,000 scans in a month  | About $120 to $130         | The rows above plus stored data and hourly metrics         |
+| 1,000 scans in a month  | About $135 to $145         | The rows above plus stored data and hourly metrics         |
 
 Per-service breakdown, monthly examples and assumptions (`us-west-2`, on-demand prices): [docs/cost.md](docs/cost.md). The Insights page shows your real token spend per URL, batch and model; filter Cost Explorer on the `Project` and `Owner` tags for the rest.
 

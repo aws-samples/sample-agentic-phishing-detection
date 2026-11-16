@@ -261,6 +261,25 @@ To see which of the eight latency flags matters, each one was turned off on its 
 - **No flag measurably hurt accuracy**: 46 or 47 caught phishing URLs (of 52, or of 53 in the `directSpecialists` off arm) and the same 2 of 50 false positives in every arm.
 - **Reliability.** With `directSpecialists` off, 2 of 110 scans had all three specialist findings fail (verdict unknown); no other arm had this. With `directTools` off, 1 scan was unknown because the target site rate-limited the capture.
 
+## Current default, 2026-11-16
+
+The numbers in the [README](../README.md#measured-results) come from this run: 600 URLs through the API on a fresh deploy of the current default (pre-check first, then the orchestrator on AgentCore Harness, the dispatcher and the three specialists, every tool through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 dead URLs (8 phishing, 48 legitimate) were answered by the pre-check and are left out, so 544 are scored.
+
+| Metric | Value |
+| --- | --- |
+| Recall, caught (phishing, or suspicious at risk 50 or more) | 0.966 (282 of 292) |
+| Recall, phishing or suspicious at any risk | 0.993 (290 of 292) |
+| Recall, phishing verdict only | 0.425 (124 of 292) |
+| False positive rate | 0.056 (14 of 252), all `suspicious` at risk 50 to 65, none `phishing` |
+| Precision / accuracy / F1 | 0.953 / 0.956 / 0.959 |
+| Scan time, worker start to verdict | median 59 s, p90 77 s, p99 95 s |
+| Model cost per model-backed scan | median $0.104, mean $0.103, p90 $0.126; $56.41 for 600 URLs |
+
+- **Misses.** 5 of the 10 missed phishing pages could not be seen (browser refused, or an origin error page) and scored suspicious at 40 to 45. 2 were copies with no sign-in form or data capture, 1 was a dashboard on the brand's own domain, 2 showed no phishing.
+- **False positives.** The random top-1M sample includes gambling doorways, scam trading portals, darknet link lists and hijacked domains; most of the 14 are of that kind, so treat the rate as an upper bound for a curated legitimate list.
+- **Strict recall is low by design.** Pages behind a provider warning are held at `suspicious` by the [page-not-observed rule](agents/orchestrator.md#page-not-observed); a gate that holds `warn` for a person still catches them.
+- **Memory.** The test stack held earlier scans, so 151 of 600 scans recalled a similar past scan. Deploy with `-c episodicMemory=false` to measure without it.
+
 ## Independent rerun on a fresh feed, 2026-11-12
 
 A second team deployed the default stack from `main` (`9d32156`) to a separate test account in `ap-southeast-2` and scanned 600 URLs through the API the same day the list was pulled: 300 from a public phishing feed and 300 legitimate sites from an older, general web list (personal, hobby, media and small-business sites). Episodic memory was on (the default; the memory was new, so it only held summaries from this run) and `scanConcurrency` was 25. Dead URLs are left out: 11 phishing and 80 legitimate URLs answered Error 404 or Site down, so 289 phishing and 220 legitimate are scored. Caught means the verdict is phishing, or suspicious with risk 50 or more, as in the runs above; the labelled set is not published.

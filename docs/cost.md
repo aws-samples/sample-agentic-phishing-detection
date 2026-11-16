@@ -9,6 +9,7 @@ What the sample costs to run in your account: a small fixed amount while it sits
 | Item | Amount | Basis |
 | --- | --- | --- |
 | Idle stacks, per month | About $14 to $15 | Estimate; Cost Explorer agreed for the tagged stacks over 2026-10-15 to 2026-10-18. Mostly the AWS WAF web ACL ($11) and two KMS keys ($2) |
+| Model tokens per model-backed scan, current default (Harness path) | $0.103 mean, $0.104 median, $0.126 p90 | Measured 2026-11-16, 548 model-backed scans of 600 URLs, episodic memory on ([README](../README.md#measured-results)) |
 | Model tokens per model-backed scan, direct path (the default from 2026-11-03 to 2026-11-15) | $0.090 mean | Measured 2026-11-03, 407 live URLs; the current default is in the [README](../README.md#measured-results), `cost_usd` per scan ([evaluation.md](evaluation.md#latency-flags-on-by-default-2026-11-03)) |
 | Other services per scan | About $0.015 | Estimate from the 2026-10-19 usage measurement on the earlier Harness path; not re-measured since |
 | Dead link (HTTP 404, Site down) | No model call | By default the pre-check runs before any model, so only the pre-check navigation is billed. On the direct path (`-c directOrchestration=true`) the specialists start with the pre-check and still bill their tokens, although the scan's `cost_usd` is `0` ([architecture.md](architecture.md#fast-paths-error-404-and-site-down)) |
@@ -52,19 +53,19 @@ This breakdown was measured on 2026-10-25 on the default of that date (the Agent
 
 ## Monthly examples
 
-Computed from the current measured token mean ($0.090 per model-backed scan), the other-services estimate ($0.015 per scan), the idle estimate, and AgentCore Memory records for 90 days of scans (about $0.0005 per stored scan per month, three months kept). `us-west-2` application, `us-east-1` edge stack, on-demand prices, no free tier.
+Computed from the current measured token mean ($0.103 per model-backed scan, 2026-11-16), the other-services estimate ($0.015 per scan), the idle estimate, and AgentCore Memory records for 90 days of scans (about $0.0005 per stored scan per month, three months kept). `us-west-2` application, `us-east-1` edge stack, on-demand prices, no free tier.
 
 | Scans per month | Model tokens | Other per-scan services | Idle stacks | Stored data | Total |
 | --- | --- | --- | --- | --- | --- |
-| 1,000 | $90 | $15 | $14 to $21 | $1.50 | **About $120 to $130** |
-| 10,000 | $900 | $150 | $21 | $15 | **About $1,090** |
-| 100,000 | $9,000 | $1,500 | $21 | $150 | **About $10,670** |
+| 1,000 | $103 | $15 | $14 to $21 | $1.50 | **About $135 to $145** |
+| 10,000 | $1,030 | $150 | $21 | $15 | **About $1,220** |
+| 100,000 | $10,300 | $1,500 | $21 | $150 | **About $11,970** |
 
 Assumptions and limits:
 
 - Token prices from `backend/phish_backend/common/pricing.json` (AWS Price List API, checked 2026-10-21): the `us.` Opus 5.5 profile at $4.40 input and $22.00 output per million tokens, the `global.` Sonnet 5.5 profile at $2.00 and $10.00, cache reads at 0.05 times and cache writes at 1.25 times the input price.
-- The $0.090 mean was measured with episodic memory off; with it on (the default) the orchestrator also reads up to three short past-scan summaries.
-- Your URL mix changes the mean: clean legitimate pages often take the unanimous fast path (no verdict turn), long pages with large scripts cost more.
+- The $0.103 mean was measured with episodic memory on (the default), so it includes the orchestrator reading up to three short past-scan summaries.
+- Your URL mix changes the mean: dead links end at the pre-check with no model call, long pages with large scripts cost more.
 - The idle range tops out at $21 when CloudWatch custom metrics are published every hour.
 
 ### How the service estimates were made
