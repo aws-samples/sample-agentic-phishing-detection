@@ -3,10 +3,11 @@
 """Evaluate each of the four agents independently against a labelled URL set.
 
 Specialists are called directly on their Runtimes (MCP tools/call). The orchestrator is
-scored end to end through the deployed API by default, the path a real scan takes (direct
-orchestration unless the stack opts out), or on the AgentCore Harness with
---orchestrator-path harness. Scores are computed per agent so a regression in one
-specialist is visible even when the orchestrator still gets the final verdict right.
+scored end to end through the deployed API by default, the path a real scan takes (the
+AgentCore Harness by default, direct orchestration if the stack opts in), or with one verdict
+turn on the Harness directly with --orchestrator-path harness. Scores are computed per agent
+so a regression in one specialist is visible even when the orchestrator still gets the final
+verdict right.
 
 Usage:
   AWS_PROFILE=<profile> uv run --package phish-agents \
@@ -216,8 +217,8 @@ def main(argv: list[str] | None = None) -> int:
         "--orchestrator-path",
         choices=["api", "harness"],
         default="api",
-        help="api: scan through the deployed API (the default direct orchestration); "
-        "harness: one verdict turn on the opt-in AgentCore Harness",
+        help="api: scan through the deployed API (the stack's own path, by default the "
+        "AgentCore Harness); harness: one verdict turn on the AgentCore Harness directly",
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")

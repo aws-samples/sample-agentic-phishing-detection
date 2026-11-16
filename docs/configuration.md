@@ -57,6 +57,25 @@ Pass options with `-c name=value` on the deploy command.
 > [!NOTE]
 > **Agent Registry is off by default.** The default deploy has no registry, no `registry` Gateway target, no registry permissions and no lookup step in the orchestrator prompt. `-c agentRegistry=true` adds all four (in `us-west-2` and `us-east-1` only); scans work the same either way, because the lookup never routes a call. See [architecture.md](architecture.md#agent-registry-opt-in).
 
+## Tune confidence, risk and actions
+
+No deploy option changes the verdict rules. To match holds and actions to your risk appetite, start with your own gate (no redeploy), then the orchestrator and specialist prompts, then the caps in code: [customize-verdicts.md](customize-verdicts.md).
+
+## Use a newer model
+
+Both models are deploy options, so a newer Claude model needs no code change:
+
+1. **Check that it is offered in your Region**, and note its inference profile id: `aws bedrock list-inference-profiles --region <your-region>`. Use a `global.` profile, or a `us.`, `eu.`, `apac.`, `au.` or `jp.` profile to keep traffic in that geography. The agents rely on tool use, and on Bedrock prompt caching for cost ([Prompt caching](#prompt-caching)), so pick a model whose Bedrock documentation lists both.
+2. **Add its prices** to `backend/phish_backend/common/pricing.json`, keyed by the model id without the profile prefix: input, output, cache read and cache write per million tokens, a `global` rate and a `regional` rate, from the AWS Price List API. Without them the scans still run, but their cost shows as unknown and the model is listed in `unpriced_models`.
+3. **Deploy with the new id.** The IAM grants for the inference profile and its foundation model are built from the id, so no policy changes:
+
+   ```bash
+   npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias> \
+     -c orchestratorModel=<orchestrator profile id> -c specialistModel=<specialist profile id>
+   ```
+
+4. **Measure before you keep it.** The prompts and deadlines are tuned to the default models (`us.anthropic.claude-opus-5-5` and `global.anthropic.claude-sonnet-5-5`), so run `eval/evaluate_agents.py` on a labelled set ([evaluation.md](evaluation.md#run-it)) and compare recall, false positives, scan time and cost with the default before you change it for good. Deploy a second copy with `-c appName=<name>` to compare the two side by side.
+
 ## Prompt caching
 
 The specialists use Bedrock prompt caching, on by default (the agent code reads the environment variable `PHISH_PROMPT_CACHE`; the stack does not set it, and setting it to `0` on a specialist runtime turns caching off). url_analyst and brand_visual cache the tools, the system prompt and the last message; code_analyst caches only the tools and the system prompt, because its last message is the captured page code, which its final answer never reads back. The orchestrator is cached through `orchestratorPromptCache` (above): by default with a Converse `cachePoint` after its system prompt. On the Harness path, the AgentCore Harness has no cache point field (its system prompt blocks take text only), but it passes `additionalModelRequestFields` to the model, and Opus 5.5 on Bedrock accepts a top-level `cache_control` there. A one-off call would only pay the cache write premium (1.25 times the input price); most model-backed scans make two orchestrator model calls (the unanimous fast path makes only the report call), so the second reads the first back. Check `cache_read_tokens` on the `orchestrator` and `report` calls of a scan (`GET /scans/{id}`) after a deploy.

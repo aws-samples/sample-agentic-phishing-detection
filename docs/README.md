@@ -18,6 +18,7 @@ Start with [Getting started](getting-started.md) to deploy the sample and run yo
 | [API](api.md) | Call the REST API: routes, fields, errors, batches, idempotent retries and lookups |
 | [Deploy](deploy.md) | Pick a Region, bootstrap, sign in and MFA, use a custom domain, verify and clean up |
 | [Configuration](configuration.md) | Change any deploy option, including each latency flag and what it trades |
+| [Tune confidence, risk and actions](customize-verdicts.md) | Match the gate, the orchestrator rules and the caps to your own risk appetite |
 | [Evaluation](evaluation.md) | Measure accuracy on your own labelled URLs, and read every measured result |
 | [Cost](cost.md) | Estimate idle and per-scan cost by service |
 | [Security](security.md) | Review authentication, data protection, network, generative AI controls and IAM |

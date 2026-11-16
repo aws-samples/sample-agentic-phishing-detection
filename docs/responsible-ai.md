@@ -32,6 +32,9 @@ The service attaches the bold notice at the top of this page itself, so it does 
 - High confidence means the specialists agreed and their evidence was concrete. It is not a probability, and it is not calibrated against real-world phishing rates.
 - Low confidence usually means a specialist failed, the page did not load, or the findings disagreed. Treat a low-confidence verdict as "look at this yourself".
 
+
+To hold more or fewer links for review, tune your gate first; [Tune confidence, risk and actions](customize-verdicts.md) lists every layer you can change. The disclaimer and the guardrails stay at every layer.
+
 ## Known failure modes
 
 | Case                                       | What can happen                                                                             |
