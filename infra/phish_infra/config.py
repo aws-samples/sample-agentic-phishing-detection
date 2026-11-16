@@ -165,13 +165,13 @@ class AppConfig:
     # Off by default: url_analyst calls whois_lookup through the tools Gateway like every other
     # tool. True: it runs its RDAP lookup in process (same SSRF-guarded client and cache).
     local_rdap: bool = False
-    # Off by default; only with directOrchestration (defaults to it). True: the worker stores `legitimate` without
-    # a verdict turn when all three specialists answer legitimate at confidence 80 or more, no
-    # capture missed the page and nothing above medium was raised. The caps and the report turn
-    # still run.
+    # Off by default; only with directOrchestration (defaults to it). True: the worker stores
+    # `legitimate` without a verdict turn when all three specialists answer legitimate at
+    # confidence 80 or more, no capture missed the page and nothing above medium was raised. The
+    # caps and the report turn still run.
     unanimous_fast_path: bool = False
-    # Off by default; only with directOrchestration (defaults to it). True: the worker invokes the three
-    # specialist Runtimes itself, without the dispatcher hop, and gets InvokeAgentRuntime on
+    # Off by default; only with directOrchestration (defaults to it). True: the worker invokes the
+    # three specialist Runtimes itself, without the dispatcher hop, and gets InvokeAgentRuntime on
     # them (never on a tools Runtime).
     direct_specialists: bool = False
     # Off by default: the specialists call their tools through Gateway phish-tools (one shared
@@ -179,9 +179,9 @@ class AppConfig:
     # tools Gateway hop) on one tools session per scan, shared with the worker's precheck;
     # url_analyst runs RDAP in process. The tools Gateway stays deployed.
     direct_tools: bool = False
-    # Off by default; only with directTools (defaults to it). True: brand_visual and code_analyst each call their
-    # own copy of the tools Runtime, so a scan's precheck and two captures draw on three
-    # Runtimes' session start capacity instead of one.
+    # Off by default; only with directTools (defaults to it). True: brand_visual and code_analyst
+    # each call their own copy of the tools Runtime, so a scan's precheck and two captures draw on
+    # three Runtimes' session start capacity instead of one.
     split_tools_runtimes: bool = False
     # On by default. True: every agent Runtime gets LATENCY_BUDGETS=1: code_analyst's capture
     # budget 18 s (3 s raw HTML fallback, 1.5 s settle, 20 s server backstop), brand_visual's
