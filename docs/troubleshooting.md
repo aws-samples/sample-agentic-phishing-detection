@@ -18,7 +18,7 @@ uv run python scripts/preflight.py --profile <your-profile> --region "$AWS_REGIO
 | `PhishTriageAgenticEdge` fails: not bootstrapped | No CDK bootstrap in `us-east-1` | Run the bootstrap step for both Regions ([deploy.md](deploy.md#2-bootstrap-cdk-in-both-regions-one-time)) |
 | AgentCore resource type not supported | AgentCore is not in this Region | Pick a supported Region and redeploy |
 | Synth fails on `specialistMode` | The option was removed | Drop it, or use `-c agentRegistry=true` |
-| Synth fails on `directOrchestration` with `agentRegistry` | The two cannot be combined | Drop `-c directOrchestration=true`; with the registry on, the Harness path is selected for you |
+| Synth fails on `directOrchestration` with `agentRegistry` | The two cannot be combined | Drop `-c directOrchestration=true`; the registry needs the default Harness path |
 
 ## Scans
 

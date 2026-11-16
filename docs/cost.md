@@ -2,24 +2,24 @@
 
 What the sample costs to run in your account: a small fixed amount while it sits idle, plus a per-scan amount that is mostly model tokens. Every figure on this page is either measured on a test stack (and says when) or an estimate built from measured usage and AWS list prices (and says so).
 
-**On this page:** [Summary](#summary) · [Per scan, current default](#per-scan-current-default) · [By service](#by-service) · [Monthly examples](#monthly-examples) · [How the service estimates were made](#how-the-service-estimates-were-made) · [Track your own spend](#track-your-own-spend)
+**On this page:** [Summary](#summary) · [Per scan, direct path](#per-scan-direct-path-2026-11-03) · [By service](#by-service) · [Monthly examples](#monthly-examples) · [How the service estimates were made](#how-the-service-estimates-were-made) · [Track your own spend](#track-your-own-spend)
 
 ## Summary
 
 | Item | Amount | Basis |
 | --- | --- | --- |
 | Idle stacks, per month | About $14 to $15 | Estimate; Cost Explorer agreed for the tagged stacks over 2026-10-15 to 2026-10-18. Mostly the AWS WAF web ACL ($11) and two KMS keys ($2) |
-| Model tokens per model-backed scan, current default | $0.090 mean | Measured 2026-11-03, 407 live URLs, `cost_usd` per scan ([evaluation.md](evaluation.md#latency-flags-on-by-default-2026-11-03)) |
-| Other services per scan | About $0.015 | Estimate from the 2026-10-19 usage measurement on the earlier Harness path; not re-measured on the current default |
-| Dead link (HTTP 404, Site down) | No orchestrator call | On the default path the specialists start with the pre-check and still bill their tokens, although the scan's `cost_usd` is `0` ([architecture.md](architecture.md#fast-paths-error-404-and-site-down)) |
+| Model tokens per model-backed scan, direct path (the default from 2026-11-03 to 2026-11-15) | $0.090 mean | Measured 2026-11-03, 407 live URLs; the current default is in the [README](../README.md#measured-results), `cost_usd` per scan ([evaluation.md](evaluation.md#latency-flags-on-by-default-2026-11-03)) |
+| Other services per scan | About $0.015 | Estimate from the 2026-10-19 usage measurement on the earlier Harness path; not re-measured since |
+| Dead link (HTTP 404, Site down) | No model call | By default the pre-check runs before any model, so only the pre-check navigation is billed. On the direct path (`-c directOrchestration=true`) the specialists start with the pre-check and still bill their tokens, although the scan's `cost_usd` is `0` ([architecture.md](architecture.md#fast-paths-error-404-and-site-down)) |
 
-## Per scan, current default
+## Per scan, direct path (2026-11-03)
 
 Measured on 2026-11-03 on a test stack in `us-west-2`, 448 URLs submitted at once (224 from a public phishing feed, 224 legitimate pages), 407 live, episodic memory off, `scanConcurrency` 25:
 
 | Configuration | Model cost per scan, mean | Scan time, median / p90 |
 | --- | --- | --- |
-| Current default (all latency flags on) | **$0.090** | **18.6 s / 31.2 s** |
+| Direct path, all latency flags on (default 2026-11-03 to 2026-11-15) | **$0.090** | **18.6 s / 31.2 s** |
 | Previous default (2026-11-02) | $0.134 | 37.8 s / 71.9 s |
 
 Earlier measurements (2026-10-18 to 2026-11-02) are in [evaluation.md](evaluation.md#cost-history). Long pages cost more than short ones; `cost_usd` on each scan record has the exact figure.

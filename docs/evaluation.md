@@ -297,7 +297,7 @@ Each design below was measured on a test stack in `us-west-2` with Claude Opus 5
 | Revised dispatcher | Same, after later prompt and pipeline changes | 2026-10-11 |
 | No dispatcher (default 2026-10-16 to 2026-10-21) | Registry lookup, then three specialist tools one after another, effort `medium` | 2026-10-16, 2026-10-18 |
 | Harness path: dispatcher, no registry (default 2026-10-21 to 2026-11-02) | One dispatcher call, three in parallel, effort `medium` | 2026-10-21 |
-| **Current: direct orchestration (latency flags on, default since 2026-11-03)** | The worker invokes the three specialists in parallel, then one Converse call for the verdict | [2026-11-03](#latency-flags-on-by-default-2026-11-03) |
+| Direct orchestration (latency flags on, default 2026-11-03 to 2026-11-15; opt-in since) | The worker invokes the three specialists in parallel, then one Converse call for the verdict | [2026-11-03](#latency-flags-on-by-default-2026-11-03) |
 
 <details>
 <summary>Why the dispatcher came back (2026-10-16 spike)</summary>
@@ -450,7 +450,7 @@ Token cost only, as recorded on each scan (`cost_usd`).
 | Dispatcher, orchestrator prompt caching | 50-URL API batch, 2026-10-25 (same URLs) | $6.56 | $0.153 |
 | Harness path: dispatcher, orchestrator prompt caching, 2026-10-26 rules (default 2026-10-21 to 2026-11-02) | 317-URL accuracy set, 2026-10-26 | $45.77 | $0.157 (291 model-backed scans) |
 | Four flags on, including direct orchestration (A/B arm) | 448-URL A/B, 2026-11-02 ([details](#capture-compact-view-and-latency-flags-2026-11-02)) | Not totalled here | $0.092 mean (409 live URLs) |
-| Current: latency flags on (default since 2026-11-03) | 448-URL A/B, 2026-11-03 ([details](#latency-flags-on-by-default-2026-11-03)) | Not totalled here | $0.090 mean (407 live URLs) |
+| Latency flags on (default 2026-11-03 to 2026-11-15) | 448-URL A/B, 2026-11-03 ([details](#latency-flags-on-by-default-2026-11-03)) | Not totalled here | $0.090 mean (407 live URLs) |
 
 > [!NOTE]
 > Runs before 2026-10-16 counted specialist prompt-cache reads and writes as zero (fixed on 2026-10-16), so they leave out most specialist input tokens: on a test stack the same 200-URL batch recorded about $0.25 per URL once they were counted. Runs before 2026-10-21 priced cache reads at 0.1 times the input price; the current `pricing.json` uses the published 0.05 times.

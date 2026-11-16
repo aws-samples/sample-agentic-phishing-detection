@@ -2,13 +2,13 @@
 
 Runs the three specialists at the same time and hands the orchestrator their three Findings in one reply. It makes no model call of its own.
 
-By default the dispatcher is deployed but idle: the worker invokes the three specialists itself (`directSpecialists`, on by default). It is on the scan path on the Harness path (`-c directOrchestration=false`), and with `-c directSpecialists=false`, where the worker calls it instead of the specialists.
+By default the dispatcher is on the scan path: the orchestrator on AgentCore Harness calls it once per scan, after the pre-check, and it runs the three specialists at the same time. On the direct path (`-c directOrchestration=true`) it is deployed but idle, because the worker invokes the three specialists itself, unless `-c directSpecialists=false`, where the worker calls the dispatcher instead.
 
 |           |                                                                                                                                                                           |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runs on   | Amazon Bedrock AgentCore Runtime (`phish_dispatcher`), as an MCP server, from the same container image as the specialists (`AGENT=dispatcher`)                            |
 | Model     | None. It only invokes the three specialist Runtimes; it never calls Bedrock                                                                                               |
-| Called by | Harness path: the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatcher___analyze_all`. With `-c directSpecialists=false`: the worker, directly with `InvokeAgentRuntime`. Not called by default |
+| Called by | By default the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatcher___analyze_all`. Direct path with `-c directSpecialists=false`: the worker, directly with `InvokeAgentRuntime`. Not called on the direct path otherwise |
 | Tools     | Exposes `analyze_all(url, scan_id)`. It calls the `url_analyst`, `brand_visual` and `code_analyst` Runtimes concurrently with `InvokeAgentRuntime` (their `analyze` tool) |
 | Prompt    | None                                                                                                                                                                      |
 | Code      | [`agents/phish_agents/dispatcher/server.py`](../../agents/phish_agents/dispatcher/server.py)                                                                              |
