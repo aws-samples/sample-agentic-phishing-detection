@@ -434,7 +434,7 @@
     <!-- 1 Title -->
     <section
       class="slide"
-      data-notes="This is an AWS sample you can deploy in your own account. Paste a link and get an explained phishing verdict in about 20 seconds: 18.6 s was the median from worker start to verdict across 407 live test URLs on 2026-11-03, queue wait not counted (docs/evaluation.md). Three specialist agents look at the link, the page and the page's code at the same time, and an orchestrator weighs their evidence."
+      data-notes="This is an AWS sample you can deploy in your own account. Paste a link and get an explained phishing verdict in about a minute: 59 s was the median from worker start to verdict across 600 test URLs on 2026-11-16, queue wait not counted (README.md). A pre-check ends dead links first; then an orchestrator agent calls three specialist agents, which look at the link, the page and the page's code at the same time, and weighs their evidence."
     >
       <div class="title-wrap">
         <div class="eyebrow">AWS sample · Amazon Bedrock AgentCore</div>
@@ -579,7 +579,7 @@
     <!-- 4 Architecture -->
     <section
       class="slide"
-      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda starts a pre-check and the three specialists on AgentCore Runtime at the same time. The two page specialists capture the page through their own copy of the tools server, which drives AgentCore Browser. The worker then asks the orchestrator model on Amazon Bedrock for the verdict and the report, which the output guardrail screens. An AgentCore Harness path is deployed on standby and is opt-in."
+      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda first pre-checks the URL on the tools server: a 404 or a dead site ends the scan there, before any model runs. Then the worker invokes the orchestrator, Claude Opus 5.5 on AgentCore Harness. Its one tool is AgentCore Gateway phish-specialists, which routes to the dispatcher, which runs the three specialists at the same time. The specialists call every tool through a second Gateway, phish-tools, on the tools server, which drives AgentCore Browser and the domain registration lookup. The orchestrator returns the verdict, then writes the report on the same session, and the output guardrail screens it. A direct path without the Harness is opt-in."
     >
       <div class="eyebrow">Architecture · default path</div>
       <h2>The page only ever opens in AgentCore Browser</h2>
@@ -619,26 +619,12 @@
           <path d="M320 632 H652" stroke="#41B3FF" marker-end="url(#ah)" />
           <path d="M880 632 H922" stroke="#41B3FF" marker-end="url(#ah)" />
           <path d="M1090 632 H1132" stroke="#41B3FF" marker-end="url(#ah)" />
-          <path
-            d="M1320 600 H1350 V356 H1392"
-            stroke="#41B3FF"
-            marker-end="url(#ah)"
-          />
-          <path d="M1350 424 H1392" stroke="#41B3FF" marker-end="url(#ah)"/>
-      <path d="M1350 500 H1392" stroke="#41B3FF" marker-end="url(#ah)" />
-          <path d="M1350 580 H1392" stroke="#41B3FF" marker-end="url(#ah)" />
-          <path
-            d="M1320 660 H1350 V846 H1392"
-            stroke="#41B3FF"
-            marker-end="url(#ah)"
-          />
-          <path
-            d="M1770 500 H1786 V660 H1772"
-            stroke="#6B7A8C"
-            marker-end="url(#ag)"
-          />
-          <path d="M1770 580 H1786" stroke="#6B7A8C" />
-          <path d="M1590 706 V754" stroke="#6B7A8C" marker-end="url(#ag)" />
+          <path d="M1320 600 H1350 V353 H1392" stroke="#41B3FF" marker-end="url(#ah)" />
+          <path d="M1350 423 H1392" stroke="#41B3FF" marker-end="url(#ah)" />
+          <path d="M1583 448 V466" stroke="#41B3FF" marker-end="url(#ah)" />
+          <path d="M1583 518 V536" stroke="#41B3FF" marker-end="url(#ah)" />
+          <path d="M1583 708 V726" stroke="#41B3FF" marker-end="url(#ah)" />
+          <path d="M1583 778 V796" stroke="#41B3FF" marker-end="url(#ah)" />
         </g>
       </svg>
       <div
@@ -690,171 +676,81 @@
         <div class="t">Worker Lambda</div>
         <div class="s">25 at once</div>
       </div>
-      <div class="badge" style="left: 1290px; top: 526px">3</div>
-      <div class="badge" style="left: 1290px; top: 700px">6</div>
-      <div class="badge" style="left: 1795px; top: 604px">4</div>
+      <div class="badge" style="left: 1302px; top: 316px">3</div>
+      <div class="badge" style="left: 1302px; top: 384px">4</div>
+      <div class="badge" style="left: 1784px; top: 474px; width: 62px; border-radius: 19px">5·6</div>
+      <div class="badge" style="left: 1784px; top: 604px">7</div>
+      <div class="badge" style="left: 1784px; top: 734px; width: 62px; border-radius: 19px">8·9</div>
+      <div class="badge" style="left: 1784px; top: 804px">10</div>
       <div
         class="grp"
-        style="left: 1380px; top: 298px; width: 420px; height: 452px"
+        style="left: 1380px; top: 298px; width: 400px; height: 570px"
       >
-        <div class="gl">AGENTCORE RUNTIME · IN PARALLEL</div>
+        <div class="gl">AMAZON BEDROCK AGENTCORE</div>
       </div>
       <div
         class="n"
-        style="
-          left: 1396px;
-          top: 328px;
-          width: 374px;
-          height: 56px;
-          padding: 9px 16px;
-        "
+        style="left: 1396px; top: 328px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Tools server · pre-check</div>
+        <div class="t" style="font-size: 21px">Pre-check <span class="muted" style="font-weight: 400">· no model</span></div>
       </div>
       <div
         class="n spec"
-        style="
-          left: 1396px;
-          top: 396px;
-          width: 374px;
-          height: 56px;
-          padding: 9px 16px;
-          border-left-color: #b08cff;
-        "
+        style="left: 1396px; top: 398px; width: 374px; height: 50px; padding: 8px 16px; border-color: rgba(255, 154, 60, 0.6);"
       >
-        <div class="t" style="font-size: 21px">
-          url_analyst
-          <span class="muted" style="font-weight: 400">· the link</span>
-        </div>
+        <div class="t" style="font-size: 21px">Orchestrator <span class="muted" style="font-weight: 400">· Harness, Opus 5.5</span></div>
+      </div>
+      <div
+        class="n"
+        style="left: 1396px; top: 468px; width: 374px; height: 50px; padding: 8px 16px;"
+      >
+        <div class="t" style="font-size: 21px">Gateway → dispatcher</div>
       </div>
       <div
         class="n spec"
-        style="
-          left: 1396px;
-          top: 474px;
-          width: 374px;
-          height: 56px;
-          padding: 9px 16px;
-          border-left-color: #ff5c85;
-        "
+        style="left: 1396px; top: 538px; width: 374px; height: 50px; padding: 8px 16px; border-left-color: #b08cff;"
       >
-        <div class="t" style="font-size: 21px">
-          brand_visual
-          <span class="muted" style="font-weight: 400">· the page</span>
-        </div>
+        <div class="t" style="font-size: 21px">url_analyst <span class="muted" style="font-weight: 400">· the link</span></div>
       </div>
       <div
         class="n spec"
-        style="
-          left: 1396px;
-          top: 554px;
-          width: 374px;
-          height: 56px;
-          padding: 9px 16px;
-          border-left-color: #00e500;
-        "
+        style="left: 1396px; top: 598px; width: 374px; height: 50px; padding: 8px 16px; border-left-color: #ff5c85;"
       >
-        <div class="t" style="font-size: 21px">
-          code_analyst
-          <span class="muted" style="font-weight: 400">· the code</span>
-        </div>
+        <div class="t" style="font-size: 21px">brand_visual <span class="muted" style="font-weight: 400">· the page</span></div>
+      </div>
+      <div
+        class="n spec"
+        style="left: 1396px; top: 658px; width: 374px; height: 50px; padding: 8px 16px; border-left-color: #00e500;"
+      >
+        <div class="t" style="font-size: 21px">code_analyst <span class="muted" style="font-weight: 400">· the code</span></div>
       </div>
       <div
         class="n"
-        style="
-          left: 1396px;
-          top: 632px;
-          width: 374px;
-          height: 74px;
-          padding: 9px 16px;
-        "
+        style="left: 1396px; top: 728px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Tools server copies</div>
-        <div class="s" style="margin-top: 2px">capture page and code</div>
+        <div class="t" style="font-size: 21px">Gateway → tools server</div>
       </div>
       <div
-        class="n"
-        style="
-          left: 1396px;
-          top: 732px;
-          width: 374px;
-          height: 0;
-          padding: 0;
-          border: 0;
-        "
-      ></div>
-      <div
-        class="n"
-        style="
-          left: 1396px;
-          top: 760px;
-          width: 374px;
-          height: 56px;
-          padding: 9px 16px;
-          border-color: rgba(65, 179, 255, 0.5);
-        "
+        class="n spec"
+        style="left: 1396px; top: 798px; width: 374px; height: 50px; padding: 8px 16px; border-color: rgba(65, 179, 255, 0.5);"
       >
-        <div class="t" style="font-size: 21px">
-          AgentCore Browser
-          <span class="muted" style="font-weight: 400">· isolated</span>
-        </div>
-      </div>
-      <div
-        class="n"
-        style="
-          left: 1396px;
-          top: 822px;
-          width: 374px;
-          height: 0;
-          padding: 0;
-          border: 0;
-        "
-      ></div>
-      <div
-        class="n"
-        style="
-          left: 1396px;
-          top: 808px;
-          width: 0;
-          height: 0;
-          padding: 0;
-          border: 0;
-        "
-      ></div>
-      <div
-        class="n"
-        style="
-          left: 1396px;
-          top: 836px;
-          width: 404px;
-          height: 76px;
-          padding: 10px 16px;
-          border-color: rgba(255, 154, 60, 0.6);
-        "
-      >
-        <div class="t" style="font-size: 21px">
-          Orchestrator · Claude Opus 5.5
-        </div>
-        <div class="s" style="margin-top: 2px">
-          Amazon Bedrock, verdict then report
-        </div>
+        <div class="t" style="font-size: 21px">AgentCore Browser <span class="muted" style="font-weight: 400">· isolated</span></div>
       </div>
       <div class="supp">
         <span class="lab">Supporting</span><span class="x">DynamoDB</span
         ><span class="x">Amazon S3</span><span class="x">AgentCore Memory</span
         ><span class="x">Bedrock Guardrails</span><span class="x">AWS KMS</span
         ><span class="x">CloudWatch</span
-        ><span class="x" style="color: var(--muted)">Harness path: opt-in</span>
+        ><span class="x" style="color: var(--muted)">Direct path: opt-in</span>
       </div>
       <div class="foot">
         <span>Source: infra/ and docs/architecture.md</span><span>04</span>
       </div>
     </section>
-
     <!-- 5 Scan flow -->
     <section
       class="slide"
-      data-notes="One scan, step by step. The pre-check and the three specialists start together, so a scan waits for about the slowest specialist rather than the sum. The verdict is stored and shown first; the report follows and is screened by a guardrail. When all three specialists agree with high confidence that a page is legitimate, the verdict is stored without the orchestrator's verdict turn."
+      data-notes="One scan, step by step. The pre-check runs first, so a 404 or a dead site ends the scan before any model is called or billed. Then the orchestrator on AgentCore Harness calls the dispatcher through AgentCore Gateway, and the dispatcher starts the three specialists at the same time, so round one waits for about the slowest specialist rather than the sum. Every tool call goes through a second Gateway to the tools server. The verdict is stored and shown first; the report follows on the same session and is screened by the output guardrail."
     >
       <div class="eyebrow">How a single scan flows</div>
       <h2>Six steps from paste to verdict</h2>
@@ -875,27 +771,28 @@
             default.
           </div>
         </div>
-        <div class="card step par">
+        <div class="card step">
           <div class="sn">3</div>
-          <div class="h">Pre-check + 3 specialists</div>
+          <div class="h">Pre-check first</div>
           <div class="b">
-            All start together. A 404 or a dead site ends here with a fixed
-            answer.
+            A 404 or a dead site ends here with a fixed answer, before any
+            model runs.
           </div>
         </div>
         <div class="card step">
           <div class="sn">4</div>
-          <div class="h">Capture</div>
+          <div class="h">Orchestrator</div>
           <div class="b">
-            The page specialists capture the page through their own tools server
-            copy.
+            Opus 5.5 on AgentCore Harness calls the dispatcher through
+            AgentCore Gateway.
           </div>
         </div>
-        <div class="card step">
+        <div class="card step par">
           <div class="sn">5</div>
-          <div class="h">Isolated browser</div>
+          <div class="h">3 specialists at once</div>
           <div class="b">
-            AgentCore Browser loads it. Nothing is typed, submitted or solved.
+            Tools go through a second Gateway. AgentCore Browser loads the page;
+            nothing is typed or solved.
           </div>
         </div>
         <div class="card step">
@@ -1145,30 +1042,30 @@ jq <span class="s">'{status, verdict: .verdict.verdict, risk: .verdict.risk_scor
     </section>
 
     <!-- 10 Results -->
-<section class="slide" data-notes="Measured on 2026-11-03 on a test stack in us-west-2: the same 110 URLs, one configuration after another. With every latency optimization on, the median scan from worker start to verdict was 20.1 s and 23.4 s in two runs, at about 9 cents of model tokens per scan. With them all off: 41.5 s and about 13 cents. Accuracy did not move: 47 of 52 live phishing URLs caught and the same 2 of 50 false positives in every arm. Queue wait is not included in scan time.">
-  <div class="eyebrow">Measured results · latency flags on vs off</div>
-  <h2>About twice as fast and a third cheaper, same accuracy</h2>
+<section class="slide" data-notes="Measured on 2026-11-16 on a fresh deploy of this version in us-west-2 with the default configuration: 600 URLs through the API, 300 from the OpenPhish public feed the same day and 300 domains sampled at random from the Tranco top-1M list. 56 dead URLs were answered by the pre-check and left out, so 544 are scored. Caught means a phishing verdict, or suspicious with risk 50 or more, the verdict a pre-publish gate holds for review. Scan time is worker start to verdict; queue wait is not included. Model cost is Bedrock tokens per scan.">
+  <div class="eyebrow">Measured results · 600 URLs, default configuration</div>
+  <h2>Catches 96.6% of live phishing in about a minute</h2>
   <div class="numgrid">
-    <div class="card num"><div class="lbl">Median scan time</div><div class="big blue" style="margin-top:30px;font-size:112px;white-space:nowrap">20 to 23<span style="font-size:56px"> s</span></div><div class="vs">all on, two runs · vs <b>41.5 s</b> all off</div></div>
-    <div class="card num"><div class="lbl">Model cost per scan</div><div class="big blue" style="margin-top:30px">$0.09</div><div class="vs">mean, all on · vs <b>$0.13</b> all off</div></div>
-    <div class="card num"><div class="lbl">Phishing caught</div><div class="big green" style="margin-top:30px">47<span style="font-size:72px" class="muted"> / 52</span></div><div class="vs">on and off alike · false positives <b>2 of 50</b> in both</div></div>
+    <div class="card num"><div class="lbl">Phishing caught (recall)</div><div class="big green" style="margin-top:30px">96.6%</div><div class="vs"><b>282 of 292</b> live phishing URLs</div></div>
+    <div class="card num"><div class="lbl">Legitimate sites flagged</div><div class="big blue" style="margin-top:30px">5.6%</div><div class="vs"><b>14 of 252</b> · none judged phishing</div></div>
+    <div class="card num"><div class="lbl">Scan time, median</div><div class="big blue" style="margin-top:30px">59 s</div><div class="vs">p90 <b>77 s</b> · p99 <b>95 s</b></div></div>
   </div>
-  <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Of the latency flags, only <span class="mono blue" style="font-size:26px">directOrchestration</span> has a clearly measured effect on its own: off, it added about 8 to 11 s at the median and about 47% more cost. The others were inside run-to-run noise and are not separately measured.</p>
-  <div class="src">2026-11-03, test stack, us-west-2, 110 URLs (60 phishing, 50 legitimate; 8 dead left out), episodic memory off, 25 scans in flight. Scan time is worker start to verdict. Source: docs/evaluation.md.</div>
+  <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Precision 95.3%, F1 0.959. Model cost <b style="color:var(--cloud)">$0.10</b> per scan at the median ($56.41 for all 600 URLs), and the 9% of URLs that were already dead ended at the pre-check with no model cost.</p>
+  <div class="src">2026-11-16, fresh deploy, us-west-2, 600 URLs (300 OpenPhish, 300 random Tranco top-1M domains), 544 live, episodic memory on, 25 in flight. Source: README.md, docs/evaluation.md.</div>
   <div class="foot"><span></span><span>10</span></div>
 </section>
 
-<!-- 11 Accuracy at scale -->
-<section class="slide" data-notes="The larger run on the same day: 448 URLs submitted at once, 407 live in both runs, comparing the current default with the previous one. Caught means a phishing verdict, or suspicious with risk 50 or more, the verdict a pre-publish gate holds for review. The differences of 3 to 4 URLs between the two runs are within run-to-run variation on live sites. The labelled set is private because live phishing URLs are not committed.">
-  <div class="eyebrow">Measured results · 407 live URLs</div>
+<!-- 11 Gate -->
+<section class="slide" data-notes="Where each URL from the same run landed. Most live phishing pages are caught as suspicious rather than phishing because a provider warning, such as Cloudflare's Suspected Phishing page, stood in front of the site; the app then says the page was not observed and holds the verdict at suspicious. A gate that holds warn and block for a person catches them. The legitimate half is a random top-1M sample, which includes gambling doorways, scam portals and hijacked domains, so most of the 14 flagged sites are of that kind. The labelled set is private because live phishing URLs are not committed.">
+  <div class="eyebrow">Measured results · 544 live URLs</div>
   <h2>What a pre-publish gate would hold</h2>
   <div class="numgrid">
-    <div class="card num"><div class="lbl">Phishing caught (recall)</div><div class="big green" style="margin-top:30px">0.883</div><div class="vs"><b>166 of 188</b> phishing URLs</div></div>
-    <div class="card num"><div class="lbl">False positive rate</div><div class="big blue" style="margin-top:30px">0.046</div><div class="vs"><b>10 of 219</b> legitimate URLs</div></div>
-    <div class="card num"><div class="lbl">Scan time, median / p90</div><div class="big blue" style="margin-top:30px;font-size:120px">18.6 s</div><div class="vs">p90 <b>31.2 s</b> · before: 37.8 s</div></div>
+    <div class="card num"><div class="lbl">Live phishing, 292</div><div class="big green" style="margin-top:30px">290</div><div class="vs"><b>124</b> phishing + <b>166</b> suspicious · <b>2</b> legitimate</div></div>
+    <div class="card num"><div class="lbl">Live legitimate, 252</div><div class="big blue" style="margin-top:30px">194</div><div class="vs">legitimate · <b>23</b> unknown (warn) · <b>35</b> suspicious</div></div>
+    <div class="card num"><div class="lbl">Dead links</div><div class="big blue" style="margin-top:30px">56</div><div class="vs">Error 404 or Site down, <b>no model cost</b></div></div>
   </div>
   <p style="margin-top:48px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px"><b style="color:var(--cloud)">Caught</b> means a phishing verdict, or suspicious with risk 50 or more. The labelled set is private, so reproduce the method with your own labelled URLs.</p>
-  <div class="src">2026-11-03, test stack, us-west-2, 448 URLs submitted at once (224 from a public phishing feed, 224 legitimate), 407 live, episodic memory off, 25 in flight. Source: README.md, docs/evaluation.md.</div>
+  <div class="src">Same run as the previous slide. 282 of the 290 flagged phishing URLs were at risk 50 or more. Source: README.md, docs/evaluation.md.</div>
   <div class="foot"><span></span><span>11</span></div>
 </section>
 
@@ -1203,11 +1100,11 @@ jq <span class="s">'{status, verdict: .verdict.verdict, risk: .verdict.risk_scor
   <h2>Pennies per scan, a small idle floor</h2>
   <div class="numgrid">
     <div class="card num"><div class="lbl">Idle stacks</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$14 to $15</div><div class="vs">per month, estimate · mostly AWS WAF and KMS</div></div>
-    <div class="card num"><div class="lbl">Per scan</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$0.105</div><div class="vs"><b>$0.090</b> tokens, measured + <b>about $0.015</b> other services, estimate</div></div>
-    <div class="card num"><div class="lbl">1,000 scans a month</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$120 to $130</div><div class="vs">computed: measured tokens plus estimates, with storage</div></div>
+    <div class="card num"><div class="lbl">Per scan</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$0.118</div><div class="vs"><b>$0.103</b> tokens, measured + <b>about $0.015</b> other services, estimate</div></div>
+    <div class="card num"><div class="lbl">1,000 scans a month</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$135 to $145</div><div class="vs">computed: measured tokens plus estimates, with storage</div></div>
   </div>
   <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Every resource is tagged with <span class="mono" style="font-size:26px">Project</span> and <span class="mono" style="font-size:26px">Owner</span>, so spend shows up in Cost Explorer. The Insights page shows token spend per URL, batch and model.</p>
-  <div class="src">Assumptions: us-west-2 application and us-east-1 edge stack, on-demand prices, no free tier; token mean measured 2026-11-03 on 407 live URLs. Per-service breakdown: docs/cost.md.</div>
+  <div class="src">Assumptions: us-west-2 application and us-east-1 edge stack, on-demand prices, no free tier; token mean measured 2026-11-16 on 548 model-backed scans. Per-service breakdown: docs/cost.md.</div>
   <div class="foot"><span></span><span>14</span></div>
 </section>
 
