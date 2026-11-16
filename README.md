@@ -120,6 +120,9 @@ The orchestrator then judges the three findings and returns the verdict, then wr
 | [brand_visual](docs/agents/brand_visual.md) | Brand impersonation, fake sign-in pages, scare copy, the brand's official website | Claude Sonnet 5.5 |
 | [code_analyst](docs/agents/code_analyst.md) | Credential forms posting elsewhere, keyloggers, obfuscation                       | Claude Sonnet 5.5 |
 
+> [!TIP]
+> **Use a newer model.** The models are deploy options: `-c orchestratorModel=<id>` and `-c specialistModel=<id>` take any Amazon Bedrock inference profile in your Region, and the IAM grants follow the id. Add the model's prices to `pricing.json` so its cost is not shown as unknown, and run the evaluation on your labelled URLs before you switch, because the prompts are tuned to the default models. Steps: [docs/configuration.md](docs/configuration.md#use-a-newer-model).
+
 > [!NOTE]
 > **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
 
