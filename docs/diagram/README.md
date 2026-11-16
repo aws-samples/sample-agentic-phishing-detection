@@ -11,7 +11,7 @@ uv run --with defusedxml==0.7.1 python docs/diagram/validate_diagram.py docs/arc
 Without the desktop app, the headless container renders the same file (`--shm-size=2g` keeps the renderer from crashing):
 
 ```bash
-docker run --rm --shm-size=2g -v "$PWD/docs":/data rlespinasse/drawio-desktop-headless:latest -x -f png -s 2 -b 20 -o /data/architecture.png /data/architecture.drawio
+docker run --rm --shm-size=2g -v "$PWD/docs":/data rlespinasse/drawio-desktop-headless@sha256:95f6c9cec1346592a3122b4d8c2e1008a92cb36276e3a657cdb74524ba1f0fcb -x -f png -s 2 -b 20 -o /data/architecture.png /data/architecture.drawio
 ```
 
 The validator fails on a diagonal line, a crossing, an overlap, a line through an icon or a long label. The diagram draws the default deploy: the scan path in the scan group with solid, numbered lines (the numbers match the steps in [architecture.md](../architecture.md#how-a-scan-works)), from the pre-check through AgentCore Harness, Gateway `phish-specialists`, the dispatcher, the three specialists, Gateway `phish-tools` and the tools server to AgentCore Browser. `brand_visual`'s web search is the one dashed line, and anything off the scan path sits in the supporting services group with no lines. The opt-in direct path (`-c directOrchestration=true`) is named in the footer, and AWS Agent Registry is labelled off by default, because it is deployed only with `-c agentRegistry=true`. Icons: AWS Architecture Icons release 07312026.
