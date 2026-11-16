@@ -155,31 +155,34 @@ class AppConfig:
     # refusal (ERR_BLOCKED_BY_CLIENT) gets the certificate-tolerant retry, and a page still behind
     # a wall is recorded as page_state bot_blocked. The verdict logic is unchanged.
     capture_block_retry: bool = False
-    # On by default (-c directOrchestration=false for the Harness; off when agentRegistry=true).
-    # True: the worker starts the dispatcher itself, alongside the pre-check, and
-    # asks the orchestrator model for the verdict and the report with two Converse calls instead
-    # of an AgentCore Harness session. No second round, no Harness trace.
-    direct_orchestration: bool = True
-    # On by default. True: url_analyst runs its RDAP lookup in process (same SSRF-guarded client
-    # and cache) instead of through the tools Runtime.
-    local_rdap: bool = True
-    # On by default; only with directOrchestration. True: the worker stores `legitimate` without
+    # Off by default: the worker runs the pre-check first, then one AgentCore Harness session
+    # (orchestrator -> Gateway phish-specialists -> dispatcher -> three specialists). True
+    # (-c directOrchestration=true, not with agentRegistry): the worker starts the dispatcher
+    # itself, alongside the pre-check, and asks the orchestrator model for the verdict and the
+    # report with two Converse calls. Lower latency, but specialists that already started on a
+    # 404 or dead site are still billed.
+    direct_orchestration: bool = False
+    # Off by default: url_analyst calls whois_lookup through the tools Gateway like every other
+    # tool. True: it runs its RDAP lookup in process (same SSRF-guarded client and cache).
+    local_rdap: bool = False
+    # Off by default; only with directOrchestration (defaults to it). True: the worker stores `legitimate` without
     # a verdict turn when all three specialists answer legitimate at confidence 80 or more, no
     # capture missed the page and nothing above medium was raised. The caps and the report turn
     # still run.
-    unanimous_fast_path: bool = True
-    # On by default; only with directOrchestration. True: the worker invokes the three
+    unanimous_fast_path: bool = False
+    # Off by default; only with directOrchestration (defaults to it). True: the worker invokes the three
     # specialist Runtimes itself, without the dispatcher hop, and gets InvokeAgentRuntime on
     # them (never on a tools Runtime).
-    direct_specialists: bool = True
-    # On by default. True: brand_visual and code_analyst call the tools Runtime directly (no
+    direct_specialists: bool = False
+    # Off by default: the specialists call their tools through Gateway phish-tools (one shared
+    # tools Runtime). True: brand_visual and code_analyst call the tools Runtime directly (no
     # tools Gateway hop) on one tools session per scan, shared with the worker's precheck;
     # url_analyst runs RDAP in process. The tools Gateway stays deployed.
-    direct_tools: bool = True
-    # On by default; only with directTools. True: brand_visual and code_analyst each call their
+    direct_tools: bool = False
+    # Off by default; only with directTools (defaults to it). True: brand_visual and code_analyst each call their
     # own copy of the tools Runtime, so a scan's precheck and two captures draw on three
     # Runtimes' session start capacity instead of one.
-    split_tools_runtimes: bool = True
+    split_tools_runtimes: bool = False
     # On by default. True: every agent Runtime gets LATENCY_BUDGETS=1: code_analyst's capture
     # budget 18 s (3 s raw HTML fallback, 1.5 s settle, 20 s server backstop), brand_visual's
     # screenshot 1.5 to 5 s (a failed one keeps the loaded page), capture client timeouts 28 and
@@ -253,10 +256,10 @@ def load_config(node: Node) -> AppConfig:
         )
 
     agent_registry = _as_bool(ctx("agentRegistry", False))
-    # The latency flags are on by default (2026-11-03 A/B, see docs/evaluation.md). Each flag
-    # that depends on another defaults to its parent, so turning a parent off needs one flag,
-    # and agentRegistry=true falls back to the Harness path unless directOrchestration is set.
-    direct_orchestration = _as_bool(ctx("directOrchestration", not agent_registry))
+    # The default is the Harness path with tools behind the Gateway; the latency flags are
+    # opt-in (see docs/evaluation.md). Each flag that depends on another defaults to its
+    # parent, so turning a parent on needs one flag.
+    direct_orchestration = _as_bool(ctx("directOrchestration", False))
     if direct_orchestration and agent_registry:
         # The registry lookup is a step of the Harness prompt; direct orchestration has none.
         raise ValueError("directOrchestration=true cannot be combined with agentRegistry=true")
@@ -269,7 +272,7 @@ def load_config(node: Node) -> AppConfig:
         if on and not direct_orchestration:
             # Both act on the worker's direct path; the Harness path has neither step.
             raise ValueError(f"{flag}=true needs directOrchestration=true")
-    direct_tools = _as_bool(ctx("directTools", True))
+    direct_tools = _as_bool(ctx("directTools", False))
     split_tools_runtimes = _as_bool(ctx("splitToolsRuntimes", direct_tools))
     if split_tools_runtimes and not direct_tools:
         # Through the tools Gateway every capture reaches the one Gateway target.
@@ -313,7 +316,7 @@ def load_config(node: Node) -> AppConfig:
         capture_recovery=_as_bool(ctx("captureRecovery", True)),
         capture_block_retry=_as_bool(ctx("captureBlockRetry", False)),
         direct_orchestration=direct_orchestration,
-        local_rdap=_as_bool(ctx("localRdap", True)),
+        local_rdap=_as_bool(ctx("localRdap", False)),
         unanimous_fast_path=unanimous_fast_path,
         direct_specialists=direct_specialists,
         direct_tools=direct_tools,

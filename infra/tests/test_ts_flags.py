@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: MIT-0
 """Capture, compact-view and latency flags: env vars and IAM.
 
-codeModelView=compact, captureRecovery=true and every latency flag (directOrchestration,
-localRdap, unanimousFastPath, directSpecialists, directTools, splitToolsRuntimes,
-latencyBudgets, codeTextBudget=half) are the defaults. Each flag test starts from the Harness
+codeModelView=compact, captureRecovery=true, latencyBudgets and codeTextBudget=half are the
+defaults; the path flags (directOrchestration, localRdap, unanimousFastPath, directSpecialists,
+directTools, splitToolsRuntimes) are opt-in, so the default is the Harness path with the tools
+behind the Gateway. Each flag test starts from the Harness
 layout (conftest.LATENCY_OFF) and turns one flag on, so it isolates that flag.
 """
 
@@ -187,10 +188,10 @@ def role_statements(template, runtime_name):
     ]
 
 
-def test_all_on_by_default(app_context):
+def test_harness_and_gateway_by_default(app_context):
     c = cfg(app_context)
-    assert c.direct_orchestration and c.local_rdap and c.unanimous_fast_path
-    assert c.direct_specialists and c.direct_tools and c.split_tools_runtimes
+    assert not (c.direct_orchestration or c.local_rdap or c.unanimous_fast_path)
+    assert not (c.direct_specialists or c.direct_tools or c.split_tools_runtimes)
     assert c.latency_budgets and c.code_text_budget == "half"
 
 
@@ -201,19 +202,19 @@ def test_all_off_turns_every_flag_off(harness_context):
     assert not c.latency_budgets and c.code_text_budget == "full"
 
 
-def test_parent_off_turns_its_dependents_off(app_context):
-    c = cfg(app_context, directOrchestration="false")
-    assert not (c.direct_orchestration or c.unanimous_fast_path or c.direct_specialists)
-    assert c.direct_tools and c.split_tools_runtimes
-    c = cfg(app_context, directTools="false")
-    assert not (c.direct_tools or c.split_tools_runtimes) and c.direct_orchestration
+def test_parent_on_turns_its_dependents_on(app_context):
+    c = cfg(app_context, directOrchestration="true")
+    assert c.direct_orchestration and c.unanimous_fast_path and c.direct_specialists
+    assert not (c.direct_tools or c.split_tools_runtimes)
+    c = cfg(app_context, directTools="true")
+    assert c.direct_tools and c.split_tools_runtimes and not c.direct_orchestration
 
 
-def test_registry_falls_back_to_the_harness(app_context):
+def test_registry_uses_the_harness(app_context):
     c = cfg(app_context, agentRegistry="true")
     assert c.agent_registry and not c.direct_orchestration
     assert not (c.unanimous_fast_path or c.direct_specialists)
-    assert c.direct_tools and c.latency_budgets
+    assert not c.direct_tools and c.latency_budgets
 
 
 @pytest.mark.parametrize("flag", ["unanimousFastPath", "directSpecialists"])
