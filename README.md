@@ -1,6 +1,6 @@
 # Agentic Phishing URL Detection on Amazon Bedrock AgentCore
 
-**Paste a link and get an explained phishing verdict in about 20 seconds.** Three specialist agents check the link, the page and the page's code at the same time in an isolated cloud browser. An orchestrator agent weighs their evidence, gives you the verdict first and then writes a plain-language report. Everything runs in your own AWS account.
+**Paste a link and get an explained phishing verdict in about a minute.** Three specialist agents check the link, the page and the page's code at the same time in an isolated cloud browser. An orchestrator agent weighs their evidence, gives you the verdict first and then writes a plain-language report. Everything runs in your own AWS account.
 
 ![License: MIT-0](https://img.shields.io/badge/license-MIT--0-green) ![Python 3.13](https://img.shields.io/badge/python-3.13-blue) ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK%20%28Python%29-orange) ![Amazon Bedrock AgentCore](https://img.shields.io/badge/Amazon%20Bedrock-AgentCore-01A88D) ![Strands Agents](https://img.shields.io/badge/agents-Strands-blueviolet)
 
@@ -23,41 +23,44 @@ The preview above is a silent 25-second excerpt. Watch the [full 4-minute demo w
 
 ## Measured results
 
-> **About 2x faster and a third cheaper per scan than the previous default, with the same accuracy.**
-> 407 live URLs, measured 2026-11-03.
+<!-- BENCH:START -->
+Measured on 2026-11-16: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
 
-| Measure                    | Current default        | Previous default   | Change                      |
-| -------------------------- | ---------------------- | ------------------ | --------------------------- |
-| Phishing caught (recall)   | **88.3%** (166 of 188) | 86.7% (163 of 188) | Same, within run-to-run noise |
-| False positive rate        | **4.6%** (10 of 219)   | 5.0% (11 of 219)   | Same, within run-to-run noise |
-| Median scan time           | **18.6 s**             | 37.8 s             | 51% faster                  |
-| p90 scan time              | **31.2 s**             | 71.9 s             | 57% faster                  |
-| Model cost per scan (mean) | **$0.090**             | $0.134             | 33% lower                   |
+| Phishing caught | Legitimate sites flagged | Scan time, median | Model cost per scan, median |
+| :---: | :---: | :---: | :---: |
+| **96.6%** | **5.6%** | **59 s** | **$0.10** |
+| 282 of 292 live phishing URLs | 14 of 252 live legitimate sites | p90 77 s, p99 95 s | p90 $0.13 |
+
+| Accuracy, 544 live URLs | Value |
+| --- | --- |
+| Phishing caught (recall) | **96.6%** (282 of 292) |
+| Phishing flagged at any risk (phishing or suspicious) | 99.3% (290 of 292) |
+| Legitimate sites flagged (false positive rate) | 5.6% (14 of 252) |
+| Precision | 95.3% |
+| Accuracy | 95.6% |
+| F1 | 0.959 |
+| Legitimate sites judged `unknown` (action `warn`) | 23 of 252 |
+
+| Speed and cost | Median | p90 | p99 |
+| --- | --- | --- | --- |
+| Scan time, worker start to verdict | 59 s | 77 s | 95 s |
+| Model cost per scan, 548 model-backed scans | $0.104 | $0.126 | |
+| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (9%), no model cost | | |
+| Throughput at `scanConcurrency` 25 | 550 URLs in 25.5 minutes (about 22 a minute) | | |
+| Total model cost, 600 URLs | $56.41 (mean $0.094 per URL) | | |
 
 <details>
-<summary><b>How this was measured</b></summary>
+<summary>How this was measured</summary>
 
-- **Where:** a test stack in `us-west-2`, episodic memory off, `scanConcurrency` 25.
-- **URLs:** 448 submitted at once. 224 came from a public phishing feed pulled that day and 224 are legitimate sign-in, brand, SaaS, government and free-hosting pages. 407 were live in both runs: 188 phishing and 219 legitimate.
-- **Caught** means the verdict is phishing, or suspicious with risk 50 or more (what a pre-publish gate holds for review).
-- **Scan time** runs from worker start to verdict.
-- **Noise:** differences of 3 to 4 URLs between the two runs are within run-to-run variation on live sites.
-- **Reproduce it:** the labelled set is private, because live phishing URLs are not committed. Run the method with your own labelled URLs. Method, full history and limitations: [docs/evaluation.md](docs/evaluation.md).
+- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (8 phishing, 48 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
+- **Caught** means a `phishing` verdict, or `suspicious` with risk 50 or more (action `warn` or `block`). A pre-publish gate that holds `warn` for a person catches all of them.
+- **Models.** Orchestrator Claude Opus 5.5 (`us.anthropic.claude-opus-5-5`) on AgentCore Harness, specialists Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5`).
+- **Model cost** is the Bedrock token cost of every model call in a scan (specialists, verdict and report), from each scan's `cost_usd`. AgentCore, Lambda and other services are in [Cost](#cost).
+- **Misses.** Most of the 10 missed phishing pages could not be seen (the browser was refused, or the host returned an error page) and scored just under risk 50. The 14 flagged legitimate sites are mostly gambling doorways, scam trading portals and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
+- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack held earlier scans, so about a quarter of the scans recalled a similar past scan. [docs/evaluation.md](docs/evaluation.md) explains how to measure on your own labelled URLs.
 
 </details>
-
-### Independent rerun, 2026-11-12
-
-A second team deployed the default stack from `main` (`9d32156`) to a separate test account in `ap-southeast-2` and scanned 600 URLs: 300 from a public phishing feed pulled that day and 300 legitimate sites from an older, general web list. 509 were live: 289 phishing and 220 legitimate. Caught is scored as above.
-
-| Measure (509 live URLs)    | Default, 2026-11-12 |
-| -------------------------- | ------------------- |
-| Phishing caught (recall)   | 96.9% (280 of 289)  |
-| False positive rate        | 1.4% (3 of 220)     |
-| Median / p90 scan time     | 17.1 s / 26.6 s     |
-| Model cost per scan (mean) | $0.063              |
-
-Caveats: one run, so a few URLs either way are inside run-to-run noise. The legitimate list is older and easier than the sign-in, SaaS and free-hosting set of 2026-11-03, so the false positive rate is not directly comparable, and the URL sets differ, so compare the method, not the headline. The labelled set is not published. Details: [docs/evaluation.md](docs/evaluation.md#independent-rerun-on-a-fresh-feed-2026-11-12).
+<!-- BENCH:END -->
 
 ## What it does
 
@@ -72,7 +75,7 @@ Caveats: one run, so a few URLs either way are inside run-to-run noise. The legi
 - **Scan many URLs at once**: up to 200 from a CSV in the web app. Through the API, up to 1,000 from a CSV or 50 as JSON.
 - **See the evidence**: a screenshot of the page, how the link redirected, what the page's code does, the domain's registration facts, and a report.
 - **Act on the verdict first**: it appears while the full report is still being written.
-- **Answer dead links fast**: a page that answers HTTP 404, or a host that is down, gets a fixed answer without an orchestrator call.
+- **Answer dead links fast**: a page that answers HTTP 404, or a host that is down, gets a fixed answer from the pre-check, before any model runs.
 - **Track usage** on the Insights page: volume, verdicts, scan time, tokens and cost.
 
 | Verdict      | Meaning                                                                                                                                           | Action |
@@ -95,14 +98,20 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 
 ## How it works
 
-![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker pre-checks the URL on the tools server and, at the same time, invokes url_analyst, brand_visual and code_analyst (step 3). brand_visual and code_analyst each capture the page through their own copy of the tools server (step 4), which drives AgentCore Browser (step 5). The worker then asks the orchestrator model on Amazon Bedrock for the verdict and the report (step 6). The supporting services row, including the standby Harness path and the opt-in Agent Registry, has no lines](docs/architecture.png)
+![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL on the tools server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). The Harness calls Gateway phish-specialists (step 5), which routes to the dispatcher (step 6), which invokes url_analyst, brand_visual and code_analyst at the same time (step 7). The specialists call their tools through Gateway phish-tools (step 8) on the tools server (step 9), which drives AgentCore Browser and the RDAP lookup (step 10). brand_visual also calls AgentCore Web Search through its own Gateway. The supporting services row has no lines](docs/architecture.png)
 
 1. **You submit a URL** in the web app or through the API. It is checked by a guardrail, stored and queued.
 2. **The worker picks it up** from Amazon SQS, at most 25 scans at once by default.
-3. **A pre-check and the three specialists start together.** The pre-check opens the URL once; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer. The specialists run on AgentCore Runtime.
-4. **The page specialists capture the page** through their own copy of the tools server,
-5. **in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine.
-6. **The orchestrator** (Claude Opus 5.5 on Amazon Bedrock) judges the three findings and returns the verdict, then writes the report, which an Amazon Bedrock guardrail screens. When all three specialists agree with high confidence that a page is legitimate, the verdict is stored without the orchestrator's verdict turn.
+3. **A pre-check runs first, before any model.** It opens the URL once; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer and no model cost.
+4. **The orchestrator** (Claude Opus 5.5 on AgentCore Harness) starts the analysis.
+5. **Through AgentCore Gateway** `phish-specialists`, its one tool,
+6. **it calls the dispatcher**, which
+7. **runs the three specialists at the same time** on AgentCore Runtime.
+8. **The specialists call their tools through AgentCore Gateway** `phish-tools`:
+9. **the tools server**, the only component that opens a browser,
+10. **loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP).
+
+The orchestrator then judges the three findings and returns the verdict, then writes the report, which an Amazon Bedrock guardrail screens. When the findings conflict, it may ask one specialist a second time.
 
 | Agent                                       | Checks                                                                            | Model             |
 | ------------------------------------------- | --------------------------------------------------------------------------------- | ----------------- |
@@ -112,7 +121,7 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 | [code_analyst](docs/agents/code_analyst.md) | Credential forms posting elsewhere, keyloggers, obfuscation                       | Claude Sonnet 5.5 |
 
 > [!NOTE]
-> **Two orchestration paths.** The default is the fast path above. `-c directOrchestration=false` puts the orchestrator on AgentCore Harness, which calls the specialists through a [dispatcher](docs/agents/dispatcher.md) and AgentCore Gateway, keeps a Harness trace and may ask one specialist a second time. Turning only that flag off measured about 8 to 11 s slower at the median and about 47% more model cost per scan ([evaluation.md](docs/evaluation.md#each-latency-flag-on-its-own-2026-11-03)); it is the only latency flag with a clear measured effect on its own. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
+> **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
@@ -156,9 +165,9 @@ A pre-publish gate holds a link for a person to review when the scan `FAILED`, t
 | Item                    | Amount                     | Basis                                                      |
 | ----------------------- | -------------------------- | ---------------------------------------------------------- |
 | Deployed stacks, idle   | About $14 to $15 per month | Estimate, mostly the AWS WAF web ACL; Cost Explorer agreed |
-| Model tokens per scan   | $0.090 mean                | Measured, current default, 407 live URLs (2026-11-03)      |
+| Model tokens per scan   | $0.103 mean                | Measured, current default, 548 model-backed scans (2026-11-16) |
 | Other services per scan | About $0.015               | Estimate from usage measured on the earlier default        |
-| 1,000 scans in a month  | About $120 to $130         | The rows above plus stored data and hourly metrics         |
+| 1,000 scans in a month  | About $135 to $145         | The rows above plus stored data and hourly metrics         |
 
 Per-service breakdown, monthly examples and assumptions (`us-west-2`, on-demand prices): [docs/cost.md](docs/cost.md). The Insights page shows your real token spend per URL, batch and model; filter Cost Explorer on the `Project` and `Owner` tags for the rest.
 
@@ -172,7 +181,7 @@ Pass options with `-c name=value` on the deploy command. The most used ones:
 | `appName`             | `phish`                              | Deploy a second copy next to the first (renames the stacks to `<Name>TriageAgentic`)      |
 | `scanConcurrency`     | `25`                                 | Trade batch throughput against the time each scan takes                                   |
 | `specialistModel`     | `global.anthropic.claude-sonnet-5-5` | Use another model, or a `us.` profile to keep specialist traffic in the US                |
-| `directOrchestration` | `true`                               | `false` runs the orchestrator on AgentCore Harness, with its trace and second round       |
+| `directOrchestration` | `false`                              | `true` skips the Harness: lower latency, no trace or second round (see note above)       |
 | `agentRegistry`       | `false`                              | Catalog the MCP servers in AWS Agent Registry (`us-west-2` and `us-east-1` only)          |
 | `episodicMemory`      | `true`                               | `false` stops past-scan summaries being passed to the orchestrator as context             |
 | `retentionDays`       | `90`                                 | Keep scans for a different time                                                           |
@@ -261,7 +270,7 @@ The orchestrator answers in two calls. The first returns the compact verdict, wh
 
 ### What is Agent Registry for, and why is it off?
 
-AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers its five MCP servers and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It runs on the Harness path.
+AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers its five MCP servers and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It needs the default Harness path.
 
 ### Can I use other models?
 

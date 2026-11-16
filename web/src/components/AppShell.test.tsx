@@ -100,7 +100,7 @@ describe("AppShell layout", () => {
 describe("AppShell brand", () => {
   it("shows the short product name and none of the retired one", () => {
     renderShell();
-    expect(screen.getAllByText("Multi-Agent Phishing URL Detection").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Agentic Phishing URL Detection").length).toBeGreaterThan(0);
     expect(document.body.textContent ?? "").not.toMatch(/phish\s*-?\s*guard\b/i);
   });
 });
