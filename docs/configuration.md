@@ -57,6 +57,10 @@ Pass options with `-c name=value` on the deploy command.
 > [!NOTE]
 > **Agent Registry is off by default.** The default deploy has no registry, no `registry` Gateway target, no registry permissions and no lookup step in the orchestrator prompt. `-c agentRegistry=true` adds all four (in `us-west-2` and `us-east-1` only); scans work the same either way, because the lookup never routes a call. See [architecture.md](architecture.md#agent-registry-opt-in).
 
+## Tune confidence, risk and actions
+
+No deploy option changes the verdict rules. To match holds and actions to your risk appetite, start with your own gate (no redeploy), then the orchestrator and specialist prompts, then the caps in code: [customize-verdicts.md](customize-verdicts.md).
+
 ## Use a newer model
 
 Both models are deploy options, so a newer Claude model needs no code change:

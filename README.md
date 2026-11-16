@@ -163,6 +163,9 @@ jq '{status, verdict: .verdict.verdict, risk: .verdict.risk_score, action: .verd
 
 A pre-publish gate holds a link for a person to review when the scan `FAILED`, the action is `block` or `warn`, the risk is 70 or more, or `page_observed` is `false`; otherwise it publishes. The verdict is advisory: a gate should hold a risky link for review, not reject it on its own. Batches, idempotent retries, lookups and a Python gate: [docs/getting-started.md](docs/getting-started.md#test-the-api-a-pre-publish-gate) and [docs/api.md](docs/api.md).
 
+> [!TIP]
+> **Tune it to your risk appetite.** The gate decides from `verdict`, `risk_score`, `confidence`, `action` and `page_observed`, so you can hold more or fewer links by changing one line in your own client, with no redeploy. Deeper changes (the orchestrator rules, the specialist prompts and the caps in code) need a redeploy and a before and after measurement. Every layer and example policies: [docs/customize-verdicts.md](docs/customize-verdicts.md).
+
 ## Cost
 
 | Item                    | Amount                     | Basis                                                      |

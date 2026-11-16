@@ -12,6 +12,8 @@ Answers the final question: is this URL phishing, and what should you do about i
 | Memory | None. On the Harness path the harness has no managed memory, the two turns of a scan share one runtime session, and the worker passes `actorId` = the scan id. Similar past scans come from the app's own AgentCore Memory, read by the worker |
 | Code | Default: no Python for the agent itself, infra loads the prompt into the harness; the worker side is [`run_scan.py`](../../backend/phish_backend/worker/run_scan.py). Direct path: [`backend/phish_backend/worker/direct.py`](../../backend/phish_backend/worker/direct.py) and `run_scan.py` |
 
+
+To change how it maps evidence to risk, confidence and action, see [Tune confidence, risk and actions](../customize-verdicts.md).
 ## What it does
 
 Every model-backed scan ends here. The conversation has up to two turns: the verdict, then the report.
