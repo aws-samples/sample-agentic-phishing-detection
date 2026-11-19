@@ -263,7 +263,7 @@ To see which of the eight latency flags matters, each one was turned off on its 
 
 ## Current default, 2026-11-16
 
-The numbers in the [README](../README.md#measured-results) come from this run: 600 URLs through the API on a fresh deploy of the current default (pre-check first, then the orchestrator on AgentCore Harness, the dispatcher and the three specialists, every tool through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 dead URLs (8 phishing, 48 legitimate) were answered by the pre-check and are left out, so 544 are scored.
+The numbers in the [README](../README.md#measured-results) come from this run: 600 URLs through the API on a fresh deploy of the current default (pre-check first, then the orchestrator on AgentCore Harness, the dispatcher and the three specialists, every tool through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 URLs (8 phishing, 48 legitimate) no longer served a page and are left out, so 544 are scored. The pre-check answered 52 of the 600 scans (9%) with Error 404 or Site down, at no model cost.
 
 | Metric | Value |
 | --- | --- |
