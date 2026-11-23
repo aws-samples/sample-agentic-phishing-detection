@@ -98,18 +98,16 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 
 ## How it works
 
-![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL on the tools server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). The Harness calls Gateway phish-specialists (step 5), which routes to the dispatcher (step 6), which invokes url_analyst, brand_visual and code_analyst at the same time (step 7). The specialists call their tools through Gateway phish-tools (step 8) on the tools server (step 9), which drives AgentCore Browser and the RDAP lookup (step 10). brand_visual also calls AgentCore Web Search through its own Gateway. The supporting services row has no lines](docs/architecture.png)
+![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL directly on the tools MCP server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). Each AgentCore Gateway is a box with its targets inside. Through Gateway phish-specialists the Harness calls the dispatcher Lambda target (step 5), which invokes url_analyst, brand_visual and code_analyst, three agents exposed as MCP tools, at the same time (step 6). The specialists call their tools through Gateway phish-tools on the tools MCP server (step 7), which drives AgentCore Browser and the RDAP lookup (step 8). Two dashed lines: brand_visual calls AgentCore Web Search, the other target on phish-tools, and the Harness may call one specialist directly in an optional second round. The supporting services row has no lines](docs/architecture.png)
 
 1. **You submit a URL** in the web app or through the API. It is checked by a guardrail, stored and queued.
 2. **The worker picks it up** from Amazon SQS, at most 25 scans at once by default.
-3. **A pre-check runs first, before any model.** It opens the URL once; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer and no model cost.
+3. **A pre-check runs first, before any model.** It opens the URL once on the tools MCP server; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer and no model cost.
 4. **The orchestrator** (Claude Opus 5.5 on AgentCore Harness) starts the analysis.
-5. **Through AgentCore Gateway** `phish-specialists`, its one tool,
-6. **it calls the dispatcher**, which
-7. **runs the three specialists at the same time** on AgentCore Runtime.
-8. **The specialists call their tools through AgentCore Gateway** `phish-tools`:
-9. **the tools server**, the only component that opens a browser,
-10. **loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP).
+5. **Through AgentCore Gateway** `phish-specialists`, its one tool, it calls the **dispatcher**, a Lambda target on that Gateway that runs only when called, which
+6. **runs the three specialists at the same time** on AgentCore Runtime. The specialists are agents exposed as MCP tools on the Gateway (agents as tools), not A2A agents.
+7. **The specialists call their tools through AgentCore Gateway** `phish-tools` on the **tools MCP server**, the only component that opens a browser.
+8. **It loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP). `brand_visual` can also check a brand's official site with AgentCore Web Search, the other target on `phish-tools`.
 
 The orchestrator then judges the three findings and returns the verdict, then writes the report, which an Amazon Bedrock guardrail screens. When the findings conflict, it may ask one specialist a second time.
 
@@ -124,7 +122,7 @@ The orchestrator then judges the three findings and returns the verdict, then wr
 > **Use a newer model.** The models are deploy options: `-c orchestratorModel=<id>` and `-c specialistModel=<id>` take any Amazon Bedrock inference profile in your Region, and the IAM grants follow the id. Add the model's prices to `pricing.json` so its cost is not shown as unknown, and run the evaluation on your labelled URLs before you switch, because the prompts are tuned to the default models. Steps: [docs/configuration.md](docs/configuration.md#use-a-newer-model).
 
 > [!NOTE]
-> **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
+> **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools MCP server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
@@ -228,7 +226,7 @@ A few things stay behind and are yours to remove (a log group created at run tim
 ## Repository layout
 
 ```text
-agents/      the three specialists, the dispatcher and the tools server (Python, Strands) and the orchestrator prompt
+agents/      the three specialists, the dispatcher and the tools MCP server (Python, Strands) and the orchestrator prompt
 backend/     Lambda functions: API, CSV split, worker (orchestration), stats, sweepers, Cognito sign-up check
 contracts/   shared data models (Finding, Verdict, ScanRecord) used by every component
 infra/       AWS CDK app (Python): app.py and one construct per layer
