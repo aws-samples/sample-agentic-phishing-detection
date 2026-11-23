@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 # The Gateway names a target's tools {target}___{tool} (the infra target is named "tools").
 DEFAULT_TARGET = "tools"
+# What a specialist may call on the tools Gateway: the tools MCP server's own tools. The same
+# Gateway can also carry web-search___WebSearch, which only brand_visual's web search client
+# allows (brand_visual/web_search.py).
+TOOLS_SERVER_TOOLS = ("capture_page", "capture_page_code", "whois_lookup")
 # A capture is 14 s for brand_visual and 20 s for code_analyst (22 s server backstop);
 # these are the client read timeouts, a little above each. code_analyst's 35 s deadline
 # must still hold a model turn on each side of the call.
@@ -68,6 +72,7 @@ class ToolsClient:
 
     def __init__(self, url: str, region: str, *, target: str = DEFAULT_TARGET, client=None) -> None:
         self.url, self.region, self.target = url, region, target
+        self.allowed_tools = frozenset(f"{target}___{tool}" for tool in TOOLS_SERVER_TOOLS)
         self._client = client
         self._lock = asyncio.Lock()
 
@@ -85,7 +90,11 @@ class ToolsClient:
     def _start(self) -> GatewayMcpClient:
         # mcp 2.2.0 negotiates a protocol the Gateway refuses; GatewayMcpClient pins 2025-06-18.
         client = self._client or GatewayMcpClient(
-            self.url, self.region, timeout_s=CONNECT_TIMEOUT_S, client_info=_CLIENT_INFO
+            self.url,
+            self.region,
+            timeout_s=CONNECT_TIMEOUT_S,
+            client_info=_CLIENT_INFO,
+            allowed_tools=self.allowed_tools,
         )
         client.start()
         return client

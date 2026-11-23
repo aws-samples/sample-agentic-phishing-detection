@@ -38,7 +38,7 @@ from phish_infra.constructs.registry import SUPPORTED_REGIONS as REGISTRY_REGION
 from phish_infra.constructs.registry import McpRecord, SpecialistRegistry
 from phish_infra.constructs.web_search import (
     WebSearchEndpoint,
-    WebSearchGateway,
+    add_web_search_target,
     web_search_folds,
 )
 
@@ -234,7 +234,8 @@ class AgentsLayer(Construct):
     ) -> None:
         super().__init__(scope, id)
         self.web_search = web_search
-        self.web_search_gateway: WebSearchGateway | None = None
+        # The connector target on the tools Gateway, when this Region offers it.
+        self.web_search_target: agentcore.CfnGatewayTarget | None = None
         self.cache = cache
         stack = cdk.Stack.of(self)
         arn_base = f"arn:{stack.partition}:bedrock-agentcore:{stack.region}"
@@ -270,8 +271,8 @@ class AgentsLayer(Construct):
             self.runtimes[name] = self._specialist(name, cfg, key, artifacts_bucket)
             # Ready before a specialist can take traffic, not just before the harness.
             self.runtimes[name].node.add_dependency(tools_target)
-            if name in WEB_SEARCH_AGENTS and self.web_search_gateway is not None:
-                self.runtimes[name].node.add_dependency(self.web_search_gateway)
+            if name in WEB_SEARCH_AGENTS and self.web_search_target is not None:
+                self.runtimes[name].node.add_dependency(self.web_search_target)
         self.dispatcher = self._dispatcher(cfg, key, artifacts_bucket)
         runtime_arns = runtime_and_endpoint_arns([*self.runtimes.values(), self.dispatcher])
 
@@ -660,8 +661,8 @@ class AgentsLayer(Construct):
             )
         gateways = [self.tools_gateway.gateway_arn]
         if name in WEB_SEARCH_AGENTS and self.web_search is not None:
-            # SigV4 to the Web Search Gateway: the edge stack's (us-east-1) or, when the
-            # Region offers the connector, this stack's own.
+            # SigV4 to the Gateway with the web search target: the tools Gateway when the Region
+            # offers the connector (deduplicated below), else the edge stack's (us-east-1).
             gateways.append(self.web_search.gateway_arn)
         role.add_to_principal_policy(
             iam.PolicyStatement(
@@ -774,17 +775,20 @@ class AgentsLayer(Construct):
     def _tools_gateway(
         self, cfg: AppConfig, stack: cdk.Stack, tools_runtime: agentcore.Runtime
     ) -> agentcore.GatewayTarget:
-        """One Gateway, one MCP server target, several tools (tools___capture_page, ...).
+        """One Gateway: the tools MCP server target (tools___capture_page, ...) and, where the
+        Region offers it, the Web Search connector target (web-search___WebSearch).
 
         SigV4 inbound: the three specialist roles hold InvokeGateway on it; the harness role
         does not, so the orchestrator cannot call a browser tool. IAM is per Gateway, not per
-        tool, so any specialist role could call any tool here. The tools server therefore
-        validates every input itself (URL guard, scan id), and brand_visual, code_analyst and
-        url_analyst are not told about each other's tools. Residual risk: a prompt-injected
-        specialist could call a sibling's tool, for example url_analyst calling capture_page;
-        the tool is read-only apart from one S3 object under scans/<scan id>/. A Gateway
-        interceptor Lambda that checks the caller per tool would close it, at the cost of
-        the hop this mode removes.
+        tool, so any specialist role could call any tool here. The tools MCP server therefore
+        validates every input itself (URL guard, scan id), the specialists' Gateway MCP client
+        refuses any tool outside its allowlist (only brand_visual's web search client allows
+        web-search___WebSearch), and brand_visual, code_analyst and url_analyst are not told
+        about each other's tools. Residual risk: code running in a specialist that bypassed its
+        client could call a sibling's tool, for example url_analyst calling capture_page or the
+        web search; the tools are read-only apart from one S3 object under scans/<scan id>/,
+        and a search is billed per query. A Gateway interceptor Lambda that checks the caller
+        per tool would close it, at the cost of one more hop on every tool call.
         """
         role = iam.Role(
             self,
@@ -827,12 +831,19 @@ class AgentsLayer(Construct):
         target.apply_removal_policy(cfg.removal_policy)
         depend_on_role_policy(target, role)
         if web_search_folds(cfg, stack.region):
-            # The Web Search Gateway moves into this stack (no edge stack, no cross-region
-            # reference) but stays a Gateway of its own: IAM is per Gateway, so a target here
-            # would let url_analyst and code_analyst search the web too. Only brand_visual holds
-            # InvokeGateway on it.
-            self.web_search_gateway = WebSearchGateway(self, "WebSearch", cfg=cfg)
-            self.web_search = self.web_search_gateway.endpoint
+            # The Web Search connector is one more target on this Gateway (no Gateway in the
+            # edge stack, no cross-region reference). IAM is per Gateway, so the url_analyst and
+            # code_analyst roles could now reach web-search___WebSearch too; their Gateway MCP
+            # client only calls the tools MCP server's own tools (common/gateway_mcp.py
+            # allowed_tools), and only brand_visual is given the web search URL and tool name.
+            self.web_search_target = add_web_search_target(
+                Construct(self, "ToolsWebSearch"), gateway=gateway, role=role, cfg=cfg
+            )
+            self.web_search = WebSearchEndpoint(
+                gateway_url=gateway.gateway_url or "",
+                gateway_arn=gateway.gateway_arn,
+                region=stack.region,
+            )
         stack_output(self, "ToolsGatewayArn", gateway.gateway_arn, "Tools Gateway ARN")
         stack_output(self, "ToolsGatewayUrl", gateway.gateway_url or "", "Tools Gateway MCP URL")
         stack_output(

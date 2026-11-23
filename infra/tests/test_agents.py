@@ -460,7 +460,7 @@ def test_registry_is_off_by_default(app_context, t):
 
 def test_registry_flag_adds_the_catalog_its_target_and_the_lookup_step(reg):
     assert sorted(targets_of(reg)) == sorted(
-        ["dispatcher", "registry", "tools", *SPECIALIST_TARGETS]
+        ["dispatcher", "registry", "tools", "web-search", *SPECIALIST_TARGETS]
     )
     gateways = sorted(
         g["Properties"]["Name"]
@@ -521,15 +521,20 @@ def test_a_prompt_without_the_round_one_heading_is_a_clear_error(monkeypatch, tm
 # ── tools server and its Gateway (always deployed) ──────────────────────────────────────
 
 
-def test_tools_gateway_has_one_target_on_the_tools_runtime(t):
+def tools_gateway_targets(template):
+    return {
+        x["Properties"]["Name"]: x["Properties"]
+        for x in template.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
+        if gateway_id(template, "phish-tools") in json.dumps(x["Properties"]["GatewayIdentifier"])
+    }
+
+
+def test_tools_gateway_has_the_tools_runtime_and_the_web_search_connector(t):
     reg = t
-    on_tools = [
-        x["Properties"]
-        for x in reg.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-        if gateway_id(reg, "phish-tools") in json.dumps(x["Properties"]["GatewayIdentifier"])
-    ]
-    assert [t["Name"] for t in on_tools] == ["tools"]
-    (provider,) = on_tools[0]["CredentialProviderConfigurations"]
+    on_tools = tools_gateway_targets(reg)
+    # us-west-2 offers the Web Search connector, so it is the second target here.
+    assert sorted(on_tools) == ["tools", "web-search"]
+    (provider,) = on_tools["tools"]["CredentialProviderConfigurations"]
     assert provider["CredentialProvider"]["IamCredentialProvider"]["Service"] == "bedrock-agentcore"
     assert gateway_props(reg, "phish-tools")["AuthorizerType"] == "AWS_IAM"
     mcp = gateway_props(reg, "phish-tools")["ProtocolConfiguration"]["Mcp"]
@@ -655,49 +660,48 @@ def test_registry_outside_registry_regions_skips_the_catalog_and_the_step(app_co
     assert "Step 0" not in harness_prompt(template)
 
 
-def test_web_search_stays_at_the_edge_in_a_region_without_the_connector(t):
-    reg = t
-    assert all(
-        "WebSearch" not in json.dumps(t)
-        for t in reg.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-    )
-
-
-def test_web_search_gets_a_regional_gateway_of_its_own_where_the_connector_exists(app_context):
+def agents_only(app_context, region):
     app = cdk.App(context=app_context)
-    stack = cdk.Stack(app, "S", env=cdk.Environment(account="123456789012", region="us-east-1"))
+    stack = cdk.Stack(app, "S", env=cdk.Environment(account="123456789012", region=region))
     cfg = load_config(app.node)
     data = DataLayer(stack, "Data", cfg=cfg)
     AgentsLayer(stack, "Agents", cfg=cfg, key=data.key, artifacts_bucket=data.artifacts_bucket)
-    template = Template.from_stack(stack)
-    assert sorted(targets_of(template)) == [
-        "brand-visual",
-        "code-analyst",
-        "dispatcher",
-        "tools",
-        "url-analyst",
-        "web-search",
-    ]
-    env = runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"]
-    assert "WEB_SEARCH_GATEWAY_URL" in env
+    return Template.from_stack(stack)
+
+
+def test_web_search_stays_at_the_edge_in_a_region_without_the_connector(app_context):
+    template = agents_only(app_context, "eu-central-1")
+    assert "web-search" not in targets_of(template)
     assert (
         "WEB_SEARCH_GATEWAY_URL"
-        not in runtime_of(template, "code_analyst")["Properties"]["EnvironmentVariables"]
+        not in (runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"])
     )
-    # IAM is per Gateway: a web-search target on the tools Gateway would serve every specialist.
-    tools_gw, search_gw = (
-        gateway_id(template, "phish-tools"),
-        gateway_id(template, "phish-web-search"),
+
+
+@pytest.mark.parametrize("region", ["us-west-2", "us-east-1"])
+def test_web_search_is_a_tools_gateway_target_where_the_connector_exists(app_context, region):
+    template = agents_only(app_context, region)
+    gateways = sorted(
+        g["Properties"]["Name"]
+        for g in template.find_resources("AWS::BedrockAgentCore::Gateway").values()
     )
-    on_tools = [
-        t["Properties"]["Name"]
-        for t in template.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-        if tools_gw in json.dumps(t["Properties"]["GatewayIdentifier"])
-    ]
-    assert on_tools == ["tools"]
-    assert search_gw in json.dumps(role_statements(template, runtime_of(template, "brand_visual")))
+    assert gateways == ["phish-specialists", "phish-tools"]
+    assert sorted(tools_gateway_targets(template)) == ["tools", "web-search"]
+    env = runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"]
+    assert env["WEB_SEARCH_GATEWAY_URL"] == env["TOOLS_GATEWAY_URL"]
     for name in ("url_analyst", "code_analyst"):
-        assert search_gw not in json.dumps(role_statements(template, runtime_of(template, name)))
+        assert not any(
+            k.startswith("WEB_SEARCH")
+            for k in runtime_of(template, name)["Properties"]["EnvironmentVariables"]
+        )
+    # brand_visual signs for the tools Gateway only: there is no second Gateway to reach.
+    tools_gw = gateway_id(template, "phish-tools")
+    [invoke] = [
+        st
+        for st in role_statements(template, runtime_of(template, "brand_visual"))
+        if st["Action"] == "bedrock-agentcore:InvokeGateway"
+    ]
+    assert invoke["Resource"] == {"Fn::GetAtt": [tools_gw, "GatewayArn"]}
 
 
 # ── dispatcher ───────────────────────────────────────────────────────────────────────────
