@@ -20,18 +20,20 @@ from phish_backend.worker import direct, run_scan
 from phish_contracts.disclaimer import DISCLAIMER_MARKDOWN
 from phish_contracts.models import REPORT_FOLLOWUP_MESSAGE, ReportStatus
 
-DISPATCHER_ARN = "arn:aws:bedrock-agentcore:us-west-2:1:runtime/dispatcher"
+DISPATCHER_ARN = "arn:aws:lambda:us-west-2:123456789012:function:phish-dispatcher"
 REPO = Path(__file__).resolve().parents[2]
 
 
 class FakeDispatcher:
-    """The dispatcher runtime: writes the three Findings to S3, as the specialists do."""
+    """The dispatcher Lambda (lambda:Invoke): writes the three Findings to S3, as the
+    specialists do, and returns {"findings": [...]}."""
 
-    def __init__(self, error=None, write=True, started=None, release=None):
+    def __init__(self, error=None, write=True, started=None, release=None, function_error=None):
         self.error, self.write, self.calls = error, write, []
         self.started, self.release = started, release
+        self.function_error = function_error
 
-    def invoke_agent_runtime(self, **kwargs):
+    def invoke(self, **kwargs):
         self.calls.append(kwargs)
         if self.started is not None:
             self.started.set()
@@ -39,16 +41,17 @@ class FakeDispatcher:
             self.release.wait(10)
         if self.error:
             raise self.error
-        args = json.loads(kwargs["payload"])["params"]["arguments"]
+        args = json.loads(kwargs["Payload"])
         if self.write:
             write_findings(args["scan_id"])
-        text = json.dumps({"findings": [{}, {}, {}]})
-        body = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "result": {"content": [{"type": "text", "text": text}]},
+        response = {
+            "StatusCode": 200,
+            "Payload": io.BytesIO(json.dumps({"findings": [{}, {}, {}]}).encode()),
         }
-        return {"response": io.BytesIO(json.dumps(body).encode())}
+        if self.function_error:
+            response["FunctionError"] = self.function_error
+            response["Payload"] = io.BytesIO(b'{"errorMessage": "Task timed out"}')
+        return response
 
 
 class FakeBedrock:
@@ -83,7 +86,7 @@ class FakeBedrock:
 @pytest.fixture
 def direct_env(monkeypatch):
     monkeypatch.setenv("ORCHESTRATION_MODE", "direct")
-    monkeypatch.setenv("DISPATCHER_RUNTIME_ARN", DISPATCHER_ARN)
+    monkeypatch.setenv("DISPATCHER_FUNCTION_ARN", DISPATCHER_ARN)
     monkeypatch.setenv("TOOLS_RUNTIME_ARN", "arn:aws:bedrock-agentcore:us-west-2:1:runtime/tools")
     monkeypatch.setenv("ORCHESTRATOR_EFFORT", "low")
     clients.reset()
@@ -96,11 +99,11 @@ class NoHarness:
 
 def test_off_by_default_without_mode_or_arn(monkeypatch):
     monkeypatch.delenv("ORCHESTRATION_MODE", raising=False)
-    monkeypatch.setenv("DISPATCHER_RUNTIME_ARN", DISPATCHER_ARN)
+    monkeypatch.setenv("DISPATCHER_FUNCTION_ARN", DISPATCHER_ARN)
     clients.reset()
     assert settings().direct_orchestration is False
     monkeypatch.setenv("ORCHESTRATION_MODE", "direct")
-    monkeypatch.delenv("DISPATCHER_RUNTIME_ARN")
+    monkeypatch.delenv("DISPATCHER_FUNCTION_ARN")
     clients.reset()
     assert settings().direct_orchestration is False
 
@@ -122,12 +125,10 @@ def test_direct_scan_stores_verdict_then_report(aws, direct_env):
     assert "# Full report" in done.verdict.report_markdown
     assert tools.calls == 1 and len(dispatcher.calls) == 1
     call = dispatcher.calls[0]
-    assert call["agentRuntimeArn"] == DISPATCHER_ARN
-    params = json.loads(call["payload"])["params"]
-    assert params == {
-        "name": "analyze_all",
-        "arguments": {"url": "https://evil.example/", "scan_id": "s1"},
-    }
+    assert call["FunctionName"] == DISPATCHER_ARN
+    assert call["InvocationType"] == "RequestResponse"
+    # The same event the Gateway sends the Lambda target: the analyze_all tool arguments.
+    assert json.loads(call["Payload"]) == {"url": "https://evil.example/", "scan_id": "s1"}
     verdict_req, report_req = bedrock.requests
     assert verdict_req["system"][0]["text"] == direct.system_prompt()
     assert verdict_req["system"][1] == {"cachePoint": {"type": "default"}}
@@ -180,6 +181,15 @@ def test_precheck_404_takes_the_fast_path_without_a_model_call(aws, direct_env):
     done = store.get_scan("s1")
     assert done.verdict.verdict == "error_404" and done.report_status is ReportStatus.READY
     assert bedrock.requests == []
+
+
+def test_a_function_error_counts_as_a_failed_dispatch():
+    with pytest.raises(direct.DispatchError, match="Unhandled"):
+        direct.dispatch(FakeDispatcher(write=False, function_error="Unhandled"), "arn", "u", "s1")
+
+
+def test_dispatch_counts_the_findings_the_function_returned():
+    assert direct.dispatch(FakeDispatcher(write=False), "arn", "u", "s1") == 3
 
 
 def test_failed_dispatch_still_gives_a_verdict_from_error_findings(aws, direct_env):
@@ -335,9 +345,9 @@ class LegitDispatcher(FakeDispatcher):
         super().__init__(write=False, **kwargs)
         self.per_agent = per_agent or {}
 
-    def invoke_agent_runtime(self, **kwargs):
-        response = super().invoke_agent_runtime(**kwargs)
-        scan_id = json.loads(kwargs["payload"])["params"]["arguments"]["scan_id"]
+    def invoke(self, **kwargs):
+        response = super().invoke(**kwargs)
+        scan_id = json.loads(kwargs["Payload"])["scan_id"]
         _write_legit(scan_id, **self.per_agent)
         return response
 

@@ -42,12 +42,12 @@ EXPECTED_OUTPUTS = {
     "ScanMemoryId",
     "ScanMemoryArn",
 }
-# The tools server, its Gateway and the dispatcher (every deployment).
+# The tools MCP server, its Gateway and the dispatcher Lambda (every deployment).
 TOOLS_OUTPUTS = {
     "ToolsGatewayArn",
     "ToolsGatewayUrl",
     "ToolsServerRuntimeArn",
-    "DispatcherRuntimeArn",
+    "DispatcherFunctionArn",
 }
 # -c agentRegistry=true in a Region with AWS Agent Registry.
 REGISTRY_OUTPUTS = {"RegistryArn", "RegistryMcpUrl"}

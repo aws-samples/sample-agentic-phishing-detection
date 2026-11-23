@@ -12,8 +12,8 @@ import os
 from collections.abc import Mapping
 
 SPECIALISTS = ("url_analyst", "brand_visual", "code_analyst")
-# The shared tools MCP server and the dispatcher run from the same image.
-AGENTS = (*SPECIALISTS, "tools_server", "dispatcher")
+# The shared tools MCP server runs from the same image (the dispatcher is a Lambda function).
+AGENTS = (*SPECIALISTS, "tools_server")
 
 
 def main(env: Mapping[str, str] = os.environ) -> None:

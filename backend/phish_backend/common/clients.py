@@ -33,8 +33,9 @@ _PRECHECK = Config(
     connect_timeout=3,
     read_timeout=PRECHECK_TIMEOUT_SECONDS,
 )
-# Direct orchestration. The dispatcher call is not idempotent (each call is a billed run of
-# all three specialists), so one attempt; its own deadline is 50 s, plus session start-up.
+# Direct orchestration. The dispatcher Lambda call (and with DIRECT_SPECIALISTS each specialist
+# Runtime call) is not idempotent (each is a billed specialist run), so one attempt; the
+# dispatcher's own deadline is 57 s at most, plus a cold start.
 DISPATCH_TIMEOUT_SECONDS = 70
 _DISPATCHER = Config(
     retries={"total_max_attempts": 1},
@@ -84,7 +85,13 @@ def tools_runtime():
 
 
 @lru_cache(maxsize=1)
-def dispatcher_runtime():
+def dispatcher_lambda():
+    return boto3.client("lambda", region_name=settings().region, config=_DISPATCHER)
+
+
+@lru_cache(maxsize=1)
+def specialists_runtime():
+    """DIRECT_SPECIALISTS=1: the worker's own InvokeAgentRuntime calls to the specialists."""
     return boto3.client("bedrock-agentcore", region_name=settings().region, config=_DISPATCHER)
 
 
@@ -100,7 +107,8 @@ _CLIENTS = (
     agentcore,
     memory,
     tools_runtime,
-    dispatcher_runtime,
+    dispatcher_lambda,
+    specialists_runtime,
     bedrock_runtime,
 )
 

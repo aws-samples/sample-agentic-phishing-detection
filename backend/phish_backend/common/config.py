@@ -40,11 +40,12 @@ class Settings:
     tools_runtime_arn: str = ""
     # TOOLS_SESSION_PER_SCAN=1 (-c directTools): the precheck uses the scan's shared tools session.
     tools_session_per_scan: bool = False
-    # "direct": the worker runs the dispatcher alongside the precheck and asks the orchestrator
-    # model for the verdict in one Converse call (worker/direct.py). Anything else, or no
-    # dispatcher ARN: the harness path. Off unless the stack sets it (-c directOrchestration).
+    # "direct": the worker invokes the dispatcher Lambda alongside the precheck and asks the
+    # orchestrator model for the verdict in one Converse call (worker/direct.py). Anything else,
+    # or no dispatcher function ARN: the harness path. Off unless the stack sets it
+    # (-c directOrchestration).
     orchestration_mode: str = "harness"
-    dispatcher_runtime_arn: str = ""
+    dispatcher_function_arn: str = ""
     # UNANIMOUS_FAST_PATH=1 (direct orchestration only): no verdict turn when all three
     # specialists agree the page is legitimate with high confidence (direct.unanimous_legitimate).
     unanimous_fast_path: bool = False
@@ -59,7 +60,7 @@ class Settings:
 
     @property
     def direct_orchestration(self) -> bool:
-        return self.orchestration_mode == "direct" and bool(self.dispatcher_runtime_arn)
+        return self.orchestration_mode == "direct" and bool(self.dispatcher_function_arn)
 
     @property
     def direct_specialists(self) -> bool:
@@ -103,7 +104,7 @@ def settings() -> Settings:
         tools_runtime_arn=env.get("TOOLS_RUNTIME_ARN", "").strip(),
         tools_session_per_scan=env.get("TOOLS_SESSION_PER_SCAN", "").strip() == "1",
         orchestration_mode=env.get("ORCHESTRATION_MODE", "harness").strip().lower(),
-        dispatcher_runtime_arn=env.get("DISPATCHER_RUNTIME_ARN", "").strip(),
+        dispatcher_function_arn=env.get("DISPATCHER_FUNCTION_ARN", "").strip(),
         unanimous_fast_path=env.get("UNANIMOUS_FAST_PATH", "").strip() == "1",
         direct_specialists_flag=env.get("DIRECT_SPECIALISTS", "").strip() == "1",
         specialist_runtime_arns=tuple(

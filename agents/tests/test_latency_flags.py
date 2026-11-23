@@ -19,7 +19,7 @@ MODULES = (
     "phish_agents.brand_visual.capture",
     "phish_agents.common.server",
     "phish_agents.common.remote_tools",
-    "phish_agents.dispatcher.server",
+    "phish_agents.dispatcher.handler",
     "phish_agents.tools_server.server",
 )
 
@@ -54,7 +54,7 @@ def test_off_keeps_the_earlier_values(monkeypatch):
     assert m["common.server"].PAGE_DEADLINE_S == 35
     tools = m["common.remote_tools"]
     assert (tools.CAPTURE_TIMEOUT_S, tools.CODE_CAPTURE_TIMEOUT_S) == (22.0, 25.0)
-    assert m["dispatcher.server"].RUNTIME_READ_TIMEOUT_S == 45
+    assert m["dispatcher.handler"].RUNTIME_READ_TIMEOUT_S == 45
     assert m["tools_server.server"].CODE_CAPTURE_DEADLINE_S == 22
 
 
@@ -71,7 +71,7 @@ def test_latency_budgets_values(monkeypatch):
     # The client's longest wait still leaves a model turn inside the page deadline, and the
     # dispatcher's read timeout stays 10 s clear of that deadline.
     assert page_deadline - tools.CODE_CAPTURE_TIMEOUT_S >= 10
-    assert m["dispatcher.server"].RUNTIME_READ_TIMEOUT_S - page_deadline == 10
+    assert m["dispatcher.handler"].RUNTIME_READ_TIMEOUT_S - page_deadline == 10
     # The server backstop stays above the capture's own budget and below the client wait.
     assert code.CAPTURE_BUDGET_S < 20 < tools.CODE_CAPTURE_TIMEOUT_S
 
