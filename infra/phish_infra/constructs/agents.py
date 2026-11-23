@@ -782,9 +782,14 @@ class AgentsLayer(Construct):
         # L1: the L2 add_lambda_target grants lambda:InvokeFunction on the function and on
         # "<arn>:*" (every version and alias). The Gateway calls the unqualified ARN only, so
         # the L1 target plus the statement above keep the grant to exactly that ARN.
+        # Path Gateway/DispatcherTarget/Resource is where the L2 MCP target of the dispatcher
+        # Runtime kept its CfnGatewayTarget, so the logical id is unchanged and an existing
+        # stack updates that target in place (only GatewayIdentifier is create-only). A new
+        # logical id would create a second target named "dispatcher" first, which the
+        # Gateway refuses (409, seen on the 2026-11-23 sandbox upgrade).
         target = T(
-            self,
-            "DispatcherTarget",
+            Construct(gateway, "DispatcherTarget"),
+            "Resource",
             gateway_identifier=gateway.gateway_id,
             name=DISPATCHER_TARGET_NAME,
             description=DISPATCHER_DESCRIPTION,
