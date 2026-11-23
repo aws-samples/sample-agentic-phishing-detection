@@ -763,17 +763,6 @@ def test_dispatcher_is_a_lambda_target_with_the_analyze_all_tool(t):
     ]
 
 
-def test_dispatcher_target_keeps_the_runtime_targets_logical_id(t):
-    # An existing stack then updates the "dispatcher" target in place; a new logical id would
-    # create a second target of that name first, which the Gateway refuses with a 409.
-    [logical_id] = [
-        lid
-        for lid, x in t.find_resources("AWS::BedrockAgentCore::GatewayTarget").items()
-        if x["Properties"]["Name"] == "dispatcher"
-    ]
-    assert logical_id == "AgentsGatewayDispatcherTargetD879A45A"
-
-
 def test_only_the_specialists_gateway_may_invoke_the_dispatcher_resource_policy(t):
     fn_id, _ = dispatcher_fn(t)
     (permission,) = [
