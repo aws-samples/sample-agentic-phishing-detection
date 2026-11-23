@@ -579,7 +579,7 @@
     <!-- 4 Architecture -->
     <section
       class="slide"
-      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda first pre-checks the URL on the tools server: a 404 or a dead site ends the scan there, before any model runs. Then the worker invokes the orchestrator, Claude Opus 5.5 on AgentCore Harness. Its one tool is AgentCore Gateway phish-specialists, which routes to the dispatcher, which runs the three specialists at the same time. The specialists call every tool through a second Gateway, phish-tools, on the tools server, which drives AgentCore Browser and the domain registration lookup. The orchestrator returns the verdict, then writes the report on the same session, and the output guardrail screens it. A direct path without the Harness is opt-in."
+      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda first pre-checks the URL directly on the tools MCP server: a 404 or a dead site ends the scan there, before any model runs. Then the worker invokes the orchestrator, Claude Opus 5.5 on AgentCore Harness. Its one tool is AgentCore Gateway phish-specialists, which routes to the dispatcher, a Lambda target that runs only when called, which runs the three specialists at the same time. The specialists are agents exposed as MCP tools on that Gateway, not A2A agents. They call every tool through a second Gateway, phish-tools, on the tools MCP server, which drives AgentCore Browser and the domain registration lookup; brand_visual's web search is the other target on that Gateway. The orchestrator returns the verdict, then writes the report on the same session, and the output guardrail screens it. A direct path without the Harness is opt-in."
     >
       <div class="eyebrow">Architecture · default path</div>
       <h2>The page only ever opens in AgentCore Browser</h2>
@@ -678,10 +678,10 @@
       </div>
       <div class="badge" style="left: 1302px; top: 316px">3</div>
       <div class="badge" style="left: 1302px; top: 384px">4</div>
-      <div class="badge" style="left: 1784px; top: 474px; width: 62px; border-radius: 19px">5·6</div>
-      <div class="badge" style="left: 1784px; top: 604px">7</div>
-      <div class="badge" style="left: 1784px; top: 734px; width: 62px; border-radius: 19px">8·9</div>
-      <div class="badge" style="left: 1784px; top: 804px">10</div>
+      <div class="badge" style="left: 1784px; top: 474px">5</div>
+      <div class="badge" style="left: 1784px; top: 604px">6</div>
+      <div class="badge" style="left: 1784px; top: 734px">7</div>
+      <div class="badge" style="left: 1784px; top: 804px">8</div>
       <div
         class="grp"
         style="left: 1380px; top: 298px; width: 400px; height: 570px"
@@ -704,7 +704,7 @@
         class="n"
         style="left: 1396px; top: 468px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Gateway → dispatcher</div>
+        <div class="t" style="font-size: 21px">Gateway → dispatcher <span class="muted" style="font-weight: 400">· Lambda</span></div>
       </div>
       <div
         class="n spec"
@@ -728,7 +728,7 @@
         class="n"
         style="left: 1396px; top: 728px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Gateway → tools server</div>
+        <div class="t" style="font-size: 21px">Gateway → tools MCP server</div>
       </div>
       <div
         class="n spec"
@@ -750,7 +750,7 @@
     <!-- 5 Scan flow -->
     <section
       class="slide"
-      data-notes="One scan, step by step. The pre-check runs first, so a 404 or a dead site ends the scan before any model is called or billed. Then the orchestrator on AgentCore Harness calls the dispatcher through AgentCore Gateway, and the dispatcher starts the three specialists at the same time, so round one waits for about the slowest specialist rather than the sum. Every tool call goes through a second Gateway to the tools server. The verdict is stored and shown first; the report follows on the same session and is screened by the output guardrail."
+      data-notes="One scan, step by step. The pre-check runs first, so a 404 or a dead site ends the scan before any model is called or billed. Then the orchestrator on AgentCore Harness calls the dispatcher, a Lambda target on AgentCore Gateway, and the dispatcher starts the three specialists, agents exposed as MCP tools, at the same time, so round one waits for about the slowest specialist rather than the sum. Every tool call, web search included, goes through a second Gateway to the tools MCP server. The verdict is stored and shown first; the report follows on the same session and is screened by the output guardrail."
     >
       <div class="eyebrow">How a single scan flows</div>
       <h2>Six steps from paste to verdict</h2>
@@ -783,8 +783,8 @@
           <div class="sn">4</div>
           <div class="h">Orchestrator</div>
           <div class="b">
-            Opus 5.5 on AgentCore Harness calls the dispatcher through
-            AgentCore Gateway.
+            Opus 5.5 on AgentCore Harness calls the dispatcher Lambda
+            through AgentCore Gateway.
           </div>
         </div>
         <div class="card step par">
