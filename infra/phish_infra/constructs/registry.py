@@ -3,7 +3,7 @@
 """AWS Agent Registry catalog of the phish MCP servers (-c agentRegistry=true, off by default).
 
 What this is, and is not. The registry is the discovery and governance layer: each MCP server
-(the dispatcher, the three specialists and the shared tools server) is a record with its
+(the dispatcher, the three specialists and the shared tools MCP server) is a record with its
 endpoint and tool definitions, approved automatically in this sample. It does not route calls.
 AgentCore Gateway has no documented target type that reads a registry record (checked against
 the AgentCore developer guide, 2026-10-05), and the registry's own MCP endpoint only exposes the

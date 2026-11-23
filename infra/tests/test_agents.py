@@ -516,7 +516,7 @@ def test_a_prompt_without_the_round_one_heading_is_a_clear_error(monkeypatch, tm
         agents_module.orchestrator_prompt(True)
 
 
-# ── tools server and its Gateway (always deployed) ──────────────────────────────────────
+# ── tools MCP server and its Gateway (always deployed) ──────────────────────────────────
 
 
 def tools_gateway_targets(template):

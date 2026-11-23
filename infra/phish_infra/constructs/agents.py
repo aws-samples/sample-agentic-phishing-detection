@@ -106,12 +106,12 @@ TOOLS_TARGET_NAME = "tools"
 TOOLS_RUNTIME = "tools_server"
 # -c directTools: the specialists that capture pages call the tools Runtime directly.
 DIRECT_TOOLS_AGENTS = ("brand_visual", "code_analyst")
-# -c splitToolsRuntimes: each capturing specialist gets its own copy of the tools server (same
+# -c splitToolsRuntimes: each capturing specialist gets its own copy of the tools MCP server (same
 # image, AGENT=tools_server), so the worker's precheck and the two captures of a scan draw on
 # three Runtimes' session start capacity instead of one. The source fork measured that past a
 # burst of about 18 to 27 calls a Runtime makes each further call wait 9 to 12 s to start.
 CAPTURE_RUNTIMES = {"brand_visual": "tools_brand", "code_analyst": "tools_code"}
-TOOLS_DESCRIPTION = "Shared tools: AgentCore Browser capture, screenshot and RDAP lookup"
+TOOLS_DESCRIPTION = "Tools MCP server: AgentCore Browser capture, screenshot and RDAP lookup"
 # What the tools Runtime writes. Specialists write only their own Finding.
 TOOLS_ARTIFACT_KEYS = ("scans/*/screenshot.png", "scans/*/capture.json")
 # The dispatcher: one Gateway tool (dispatcher___analyze_all), a Lambda target, that invokes the
@@ -558,7 +558,7 @@ class AgentsLayer(Construct):
             f"{pascal(name)}Image",
             directory=str(IMAGE_CONTEXT),
             file=IMAGE_DOCKERFILE,
-            # A tools Runtime copy builds the same image as the tools server (one ECR asset).
+            # A tools Runtime copy builds the same image as the tools MCP server (one ECR asset).
             build_args={"AGENT": agent or name},
             # AgentCore Runtime only runs ARM64 images; amd64 never reaches READY.
             platform=ecr_assets.Platform.LINUX_ARM64,
@@ -891,7 +891,7 @@ class AgentsLayer(Construct):
             self,
             "ToolsGatewayRole",
             assumed_by=agentcore_principal(stack, f"gateway/{self.tools_gateway_name}"),
-            description="phish tools Gateway: SigV4 caller of the tools server",
+            description="phish tools Gateway: SigV4 caller of the tools MCP server",
         )
         role.add_to_principal_policy(
             iam.PolicyStatement(
@@ -903,7 +903,7 @@ class AgentsLayer(Construct):
             self,
             "ToolsGateway",
             gateway_name=self.tools_gateway_name,
-            description="Shared browser, screenshot and RDAP tools for the specialists",
+            description="Tools MCP server (browser, screenshot, RDAP) for the specialists",
             authorizer_configuration=agentcore.GatewayAuthorizer.using_aws_iam(),
             # The Gateway negotiates only these; see common/gateway_mcp.py for the client pin.
             protocol_configuration=agentcore.McpProtocolConfiguration(
