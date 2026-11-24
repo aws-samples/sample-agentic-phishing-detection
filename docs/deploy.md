@@ -54,7 +54,7 @@ export CDK_DOCKER=docker   # or finch
 npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias>
 ```
 
-Set `owner` to your team or alias. Without it every resource is tagged `Owner=phish-triage-owner`, and nobody can tell from Cost Explorer who is paying. This creates two stacks: `PhishTriageAgenticEdge` in `us-east-1` (the web ACL and, only when your Region does not offer the AgentCore Web Search connector, the fallback web search Gateway; in `us-west-2`, the default, and the other Regions that offer the connector, web search is a target on the tools Gateway `phish-tools` in the regional stack and the edge stack has no Gateway) and `PhishTriageAgentic` in your Region (everything else).
+Set `owner` to your team or alias. Without it every resource is tagged `Owner=phish-triage-owner`, and nobody can tell from Cost Explorer who is paying. This creates two stacks: `PhishTriageAgenticEdge` in `us-east-1` (the web ACL and, only when your Region does not offer the AgentCore Web Search connector, the fallback `<appName>-web-search` Gateway; in `us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `ap-southeast-2`, `ap-northeast-1` and `us-gov-west-1` web search is a target on the tools Gateway `<appName>-tools` in the regional stack, so in `us-west-2`, the default, the edge stack holds only the WAF) and `PhishTriageAgentic` in your Region (everything else).
 
 Measured durations, from our test account in `us-west-2` on 2026-09-30 with Finch on an Apple silicon laptop: creating `PhishTriageAgentic` took 476 s (about 8 minutes), and in-place updates took 220 s and 238 s. These are per-stack times for `PhishTriageAgentic` only. Updating a stack deployed before the scans table had its `status-queued_at` index adds that index in place (the table is not replaced); DynamoDB backfills it from the stored scans before that update finishes, so that one update takes longer on a table with many stored scans. A timed first `deploy --all` of a second copy (`-c appName=verify`, same account, laptop and Region, 2026-10-15) took 540 s end to end, including both stacks and the container image builds, and its first scans answered at once. A first `deploy --all` from a fresh clone on 2026-11-03 took about 16 minutes, most of it building the container images. Your times depend on your network and container runtime.
 
@@ -83,6 +83,38 @@ By default the console is served on its `*.cloudfront.net` name, and CloudFront 
 1. Open the `WebUrl` stack output in a browser.
 2. Register with your email, open the email from Cognito, and sign in with the temporary password. Choose a new password when asked.
 3. Scan `https://example.com`. You should get **legitimate**, and the report panel shows a progress note until the full report is ready.
+
+## Upgrading a stack deployed before this release
+
+A fresh deploy needs neither step. A stack deployed before the dispatcher became a Lambda function (2026-11-23) needs one or two steps before `cdk deploy`.
+
+1. **Delete the old `dispatcher` target first.** The old dispatcher was an MCP server target named `dispatcher` on the `<appName>-specialists` Gateway. CloudFormation creates the new Lambda target, also named `dispatcher`, before it deletes the old one, and the Gateway rejects the duplicate name (HTTP 409), so the update fails. Delete the old target by hand, then deploy:
+
+   ```bash
+   # find the Gateway id of <appName>-specialists (phish-specialists for the default appName)
+   aws bedrock-agentcore-control list-gateways --region "$AWS_REGION" \
+     --query "items[?name=='<appName>-specialists'].gatewayId" --output text
+   # find the id of its target named dispatcher
+   aws bedrock-agentcore-control list-gateway-targets --region "$AWS_REGION" \
+     --gateway-identifier <gateway-id> --query "items[?name=='dispatcher'].targetId" --output text
+   # delete that target
+   aws bedrock-agentcore-control delete-gateway-target --region "$AWS_REGION" \
+     --gateway-identifier <gateway-id> --target-id <target-id>
+   ```
+
+   Round one fails until the deploy finishes, so do this when no scans are running.
+
+2. **Deploy the main stack on its own first, when the old deploy had the edge web search Gateway** (a stack in `us-west-2`, the default, did; see `<appName>-web-search` in `us-east-1`). In a connector Region the update moves web search onto `<appName>-tools` and removes the edge Gateway. With `--all`, the edge stack would delete its exports while the main stack still imports them, and the deploy fails. Deploy the main stack first, so it stops importing them, then everything:
+
+   ```bash
+   cd infra
+   npx aws-cdk@2.1143.0 deploy PhishTriageAgentic   # <Name>TriageAgentic with -c appName=<name>
+   npx aws-cdk@2.1143.0 deploy --all
+   ```
+
+   Pass the same `-c` flags to both commands as to your original deploy.
+
+The `DispatcherRuntimeArn` stack output is gone and `DispatcherFunctionArn` replaces it; update anything that read it.
 
 ## Clean up
 

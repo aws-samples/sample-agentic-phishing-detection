@@ -98,7 +98,7 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 
 ## How it works
 
-![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL directly on the tools MCP server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). Each AgentCore Gateway is a box with its targets inside. Through Gateway phish-specialists the Harness calls the dispatcher Lambda target (step 5), which invokes url_analyst, brand_visual and code_analyst, three agents exposed as MCP tools, at the same time (step 6). The specialists call their tools through Gateway phish-tools on the tools MCP server (step 7), which drives AgentCore Browser and the RDAP lookup (step 8). Two dashed lines: brand_visual calls AgentCore Web Search, the other target on phish-tools, and the Harness may call one specialist directly in an optional second round. The supporting services row has no lines](docs/architecture.png)
+![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL directly on the tools MCP server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). Each AgentCore Gateway is a box with its targets inside. Through Gateway phish-specialists the Harness calls the dispatcher Lambda target (step 5), which invokes url_analyst, brand_visual and code_analyst, three agents exposed as MCP tools, at the same time (step 6). The specialists call their tools through Gateway phish-tools on the tools MCP server (step 7), which loads the page in AgentCore Browser (step 8) and runs the RDAP lookup itself. Two dashed lines: brand_visual calls AgentCore Web Search, the other target on phish-tools, and the Harness may call one specialist directly in an optional second round. The supporting services row has no lines](docs/architecture.png)
 
 1. **You submit a URL** in the web app or through the API. It is checked by a guardrail, stored and queued.
 2. **The worker picks it up** from Amazon SQS, at most 25 scans at once by default.
@@ -274,7 +274,7 @@ The orchestrator answers in two calls. The first returns the compact verdict, wh
 
 ### What is Agent Registry for, and why is it off?
 
-AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers its five MCP servers and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It needs the default Harness path.
+AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers five MCP records (the three specialists, the tools MCP server and the dispatcher, whose record points at the specialists Gateway) and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It needs the default Harness path.
 
 ### Can I use other models?
 

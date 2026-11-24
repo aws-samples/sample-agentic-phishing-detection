@@ -52,10 +52,10 @@
         <mxCell id="websearch" value="AgentCore&#10;Web Search" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock_agentcore;fillColor=#01A88D;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">
           <mxGeometry x="958" y="390" width="64" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="tools" value="tools MCP server&#10;(no model)" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock_agentcore;fillColor=#01A88D;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">
+        <mxCell id="tools" value="tools MCP server&#10;(RDAP, no model)" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock_agentcore;fillColor=#01A88D;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">
           <mxGeometry x="1158" y="530" width="64" height="64" as="geometry" />
         </mxCell>
-        <mxCell id="browser" value="AgentCore Browser&#10;+ RDAP" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock_agentcore;fillColor=#01A88D;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">
+        <mxCell id="browser" value="AgentCore&#10;Browser" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.bedrock_agentcore;fillColor=#01A88D;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">
           <mxGeometry x="1408" y="530" width="64" height="64" as="geometry" />
         </mxCell>
         <mxCell id="ddb" value="DynamoDB&#10;scans" vertex="1" parent="1" style="shape=mxgraph.aws4.resourceIcon;resIcon=mxgraph.aws4.dynamodb;fillColor=#C925D1;strokeColor=#ffffff;outlineConnect=0;aspect=fixed;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=0;fontSize=16;fontColor=#232F3E;whiteSpace=nowrap;">

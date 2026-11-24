@@ -6,12 +6,12 @@ By default the dispatcher is on the scan path: the orchestrator on AgentCore Har
 
 |           |                                                                                                                                                                           |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs on   | AWS Lambda, as a Lambda target on AgentCore Gateway `phish-specialists`. The Gateway turns the target's tool schema into the MCP tool `dispatcher___analyze_all`         |
+| Runs on   | AWS Lambda, as the Lambda target `dispatcher` on AgentCore Gateway `<appName>-specialists` (`phish-specialists` by default). The Gateway turns the target's tool schema into the MCP tool `dispatcher___analyze_all`. Timeout 90 s; logs in `/<appName>/dev/lambda/Dispatcher` (the environment name replaces `dev`). Packaged with the `phish-backend` dependencies only, no container image. Stack output `DispatcherFunctionArn` |
 | Model     | None. It only invokes the three specialist Runtimes; it never calls Bedrock                                                                                               |
-| Called by | By default the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatcher___analyze_all`. Direct path with `-c directSpecialists=false`: the worker, directly with `lambda:InvokeFunction`. Not called on the direct path otherwise |
+| Called by | By default the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatcher___analyze_all`. Direct path with `-c directSpecialists=false`: the worker, directly with `lambda:InvokeFunction` on the ARN in its `DISPATCHER_FUNCTION_ARN` variable. Not called on the direct path otherwise |
 | Tools     | Exposes `analyze_all(url, scan_id)`. It calls the `url_analyst`, `brand_visual` and `code_analyst` Runtimes concurrently with `InvokeAgentRuntime` (their `analyze` tool) |
 | Prompt    | None                                                                                                                                                                      |
-| Code      | [`agents/phish_agents/dispatcher/`](../../agents/phish_agents/dispatcher/)                                                                                                |
+| Code      | [`agents/phish_agents/dispatcher/handler.py`](../../agents/phish_agents/dispatcher/handler.py)                                                                            |
 
 ## Where it sits
 
@@ -39,6 +39,7 @@ A specialist that errors, times out or is throttled comes back as an error Findi
 | Specialist deadline (inside each Runtime) | 30 s for url_analyst, 42 s for the two page specialists, brand_visual and code_analyst (a browser capture plus their longest model turn); the specialist answers with its own error Finding at that point |
 | Read timeout per specialist invoke        | 52 s, one attempt only (a retry would start a second, billed specialist run) |
 | Backstop per specialist                   | 57 s, so a hung socket cannot hold the Gateway call                          |
+| Lambda function timeout                   | 90 s, above the backstop, so the function returns three Findings before Lambda stops it |
 
 These are the defaults (`latencyBudgets` on). With `-c latencyBudgets=false` the page specialists' deadline is 35 s (code_analyst runs reached 29.4 s, and brand_visual's model ran out of time on 5 of 317 scans at 30 s), the read timeout 45 s and the backstop 50 s. url_analyst keeps 30 s either way.
 

@@ -135,8 +135,8 @@ NODES = {
     "rt_url": ("url_analyst", "bedrock_agentcore", "ml", at(X_SPEC), ROWM),
     "rt_code": ("code_analyst", "bedrock_agentcore", "ml", at(X_SPEC), ROW_DOWN),
     "websearch": ("AgentCore\nWeb Search", "bedrock_agentcore", "ml", at(X_WS), ROW_UP),
-    "tools": ("tools MCP server\n(no model)", "bedrock_agentcore", "ml", at(X_TOOLS), ROWM),
-    "browser": ("AgentCore Browser\n+ RDAP", "bedrock_agentcore", "ml", at(X_BROWSER), ROWM),
+    "tools": ("tools MCP server\n(RDAP, no model)", "bedrock_agentcore", "ml", at(X_TOOLS), ROWM),
+    "browser": ("AgentCore\nBrowser", "bedrock_agentcore", "ml", at(X_BROWSER), ROWM),
     # Supporting services: no lines; the steps in docs/architecture.md say who uses each.
     "ddb": ("DynamoDB\nscans", "dynamodb", "database", sup(0), SUPPORT),
     "artifacts": ("Amazon S3\nartifacts", "s3", "storage", sup(1), SUPPORT),
