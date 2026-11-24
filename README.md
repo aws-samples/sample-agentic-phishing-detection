@@ -24,40 +24,40 @@ The preview above is a silent 25-second excerpt. Watch the [full 4-minute demo w
 ## Measured results
 
 <!-- BENCH:START -->
-Measured on 2026-11-16: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
+Measured on 2026-11-24: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
 
 | Phishing caught | Legitimate sites flagged | Scan time, median | Model cost per scan, median |
 | :---: | :---: | :---: | :---: |
-| **96.6%** | **5.6%** | **59 s** | **$0.10** |
-| 282 of 292 live phishing URLs | 14 of 252 live legitimate sites | p90 77 s, p99 95 s | p90 $0.13 |
+| **96.5%** | **4.7%** | **60 s** | **$0.10** |
+| 276 of 286 live phishing URLs | 12 of 258 live legitimate sites | p90 78 s, p99 96 s | p90 $0.12 |
 
 | Accuracy, 544 live URLs | Value |
 | --- | --- |
-| Phishing caught (recall) | **96.6%** (282 of 292) |
-| Phishing flagged at any risk (phishing or suspicious) | 99.3% (290 of 292) |
-| Legitimate sites flagged (false positive rate) | 5.6% (14 of 252) |
-| Precision | 95.3% |
-| Accuracy | 95.6% |
-| F1 | 0.959 |
-| Legitimate sites judged `unknown` (action `warn`) | 23 of 252 |
+| Phishing caught (recall) | **96.5%** (276 of 286) |
+| Phishing flagged at any risk (phishing or suspicious) | 97.2% (278 of 286) |
+| Legitimate sites flagged (false positive rate) | 4.7% (12 of 258) |
+| Precision | 95.8% |
+| Accuracy | 96.0% |
+| F1 | 0.962 |
+| Legitimate sites judged `unknown` (action `warn`) | 39 of 258 |
 
 | Speed and cost | Median | p90 | p99 |
 | --- | --- | --- | --- |
-| Scan time, worker start to verdict | 59 s | 77 s | 95 s |
-| Model cost per scan, 548 model-backed scans | $0.104 | $0.126 | |
-| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (9%), no model cost | | |
-| Throughput at `scanConcurrency` 25 | 550 URLs in 25.5 minutes (about 22 a minute) | | |
-| Total model cost, 600 URLs | $56.41 (mean $0.094 per URL) | | |
+| Scan time, worker start to verdict | 60.2 s | 78.0 s | 95.5 s |
+| Model cost per scan, 548 model-backed scans | $0.0988 (mean $0.0979) | $0.1237 | |
+| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (8.7%), no model cost | | |
+| Throughput at `scanConcurrency` 25 | 550 URLs in about 27 minutes (about 20 a minute) | | |
+| Total model cost, 600 URLs | $53.68 (mean $0.0895 per URL) | | |
 
 <details>
 <summary>How this was measured</summary>
 
-- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (8 phishing, 48 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
+- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (14 phishing, 42 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
 - **Caught** means a `phishing` verdict, or `suspicious` with risk 50 or more (action `warn` or `block`). A pre-publish gate that holds `warn` for a person catches all of them.
 - **Models.** Orchestrator Claude Opus 5.5 (`us.anthropic.claude-opus-5-5`) on AgentCore Harness, specialists Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5`).
 - **Model cost** is the Bedrock token cost of every model call in a scan (specialists, verdict and report), from each scan's `cost_usd`. AgentCore, Lambda and other services are in [Cost](#cost).
-- **Misses.** Most of the 10 missed phishing pages could not be seen (the browser was refused, or the host returned an error page) and scored just under risk 50. The 14 flagged legitimate sites are mostly gambling doorways, scam trading portals and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
-- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack held earlier scans, so about a quarter of the scans recalled a similar past scan. [docs/evaluation.md](docs/evaluation.md) explains how to measure on your own labelled URLs.
+- **Misses.** 3 of the 10 missed phishing URLs look like feed mislabels (preview builds of a real developer docs site), 4 were low-signal pages with no data capture, and 3 could not be seen (a password page, a browser refusal, a host that refused every capture). The 12 flagged legitimate sites are almost all gambling doorways and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
+- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack's memory held many earlier runs: 435 of 600 scans recalled records from them, which may inflate recall. The `phishing`-verdict-only rate (25.5%) is lower than on earlier runs and not yet explained, see [docs/evaluation.md](docs/evaluation.md#current-default-2026-11-24), which also explains how to measure on your own labelled URLs.
 
 </details>
 <!-- BENCH:END -->
@@ -98,18 +98,16 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 
 ## How it works
 
-![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL on the tools server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). The Harness calls Gateway phish-specialists (step 5), which routes to the dispatcher (step 6), which invokes url_analyst, brand_visual and code_analyst at the same time (step 7). The specialists call their tools through Gateway phish-tools (step 8) on the tools server (step 9), which drives AgentCore Browser and the RDAP lookup (step 10). brand_visual also calls AgentCore Web Search through its own Gateway. The supporting services row has no lines](docs/architecture.png)
+![Architecture: users and API clients reach API Gateway directly or through CloudFront and AWS WAF; the API queues each scan on Amazon SQS for the worker Lambda. The worker first pre-checks the URL directly on the tools MCP server (step 3), then invokes the orchestrator on AgentCore Harness (step 4). Each AgentCore Gateway is a box with its targets inside. Through Gateway phish-specialists the Harness calls the dispatcher Lambda target (step 5), which invokes url_analyst, brand_visual and code_analyst, three agents exposed as MCP tools, at the same time (step 6). The specialists call their tools through Gateway phish-tools on the tools MCP server (step 7), which loads the page in AgentCore Browser (step 8) and runs the RDAP lookup itself. Two dashed lines: brand_visual calls AgentCore Web Search, the other target on phish-tools, and the Harness may call one specialist directly in an optional second round. The supporting services row has no lines](docs/architecture.png)
 
 1. **You submit a URL** in the web app or through the API. It is checked by a guardrail, stored and queued.
 2. **The worker picks it up** from Amazon SQS, at most 25 scans at once by default.
-3. **A pre-check runs first, before any model.** It opens the URL once; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer and no model cost.
+3. **A pre-check runs first, before any model.** It opens the URL once on the tools MCP server; a page that answers HTTP 404, or a site that is down, ends here with a fixed answer and no model cost.
 4. **The orchestrator** (Claude Opus 5.5 on AgentCore Harness) starts the analysis.
-5. **Through AgentCore Gateway** `phish-specialists`, its one tool,
-6. **it calls the dispatcher**, which
-7. **runs the three specialists at the same time** on AgentCore Runtime.
-8. **The specialists call their tools through AgentCore Gateway** `phish-tools`:
-9. **the tools server**, the only component that opens a browser,
-10. **loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP).
+5. **Through AgentCore Gateway** `phish-specialists`, its one tool, it calls the **dispatcher**, a Lambda target on that Gateway that runs only when called, which
+6. **runs the three specialists at the same time** on AgentCore Runtime. The specialists are agents exposed as MCP tools on the Gateway (agents as tools), not A2A agents.
+7. **The specialists call their tools through AgentCore Gateway** `phish-tools` on the **tools MCP server**, the only component that opens a browser. (The Gateways are named `<appName>-specialists` and `<appName>-tools`; `phish` is the default `appName`.)
+8. **It loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP). `brand_visual` can also check a brand's official site with AgentCore Web Search, the other target on `phish-tools`.
 
 The orchestrator then judges the three findings and returns the verdict, then writes the report, which an Amazon Bedrock guardrail screens. When the findings conflict, it may ask one specialist a second time.
 
@@ -124,11 +122,11 @@ The orchestrator then judges the three findings and returns the verdict, then wr
 > **Use a newer model.** The models are deploy options: `-c orchestratorModel=<id>` and `-c specialistModel=<id>` take any Amazon Bedrock inference profile in your Region, and the IAM grants follow the id. Add the model's prices to `pricing.json` so its cost is not shown as unknown, and run the evaluation on your labelled URLs before you switch, because the prompts are tuned to the default models. Steps: [docs/configuration.md](docs/configuration.md#use-a-newer-model).
 
 > [!NOTE]
-> **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
+> **Two orchestration paths.** The default is the Harness path above. `-c directOrchestration=true -c directTools=true` is the opt-in direct path: the worker calls the three specialists and the orchestrator model itself, and the page specialists call their own copies of the tools MCP server without a Gateway hop. It is faster, but it has no Harness trace or second round, and a dead link still bills the specialists, which start together with the pre-check. Every step and permission of both paths: [docs/architecture.md](docs/architecture.md).
 
 ## Quick start
 
-You need AWS credentials, Node.js 22, Python 3.13 with [uv](https://docs.astral.sh/uv/), Finch or Docker with ARM64 builds, and Amazon Bedrock access to Claude Opus 5.5 and Claude Sonnet 5.5 in your Region. The API example also needs `awscurl` (`uv tool install awscurl==0.45`) and `jq`.
+You need AWS credentials, Node.js 22, Python 3.13 with [uv](https://docs.astral.sh/uv/), Finch or Docker with ARM64 builds, and Amazon Bedrock access to Claude Opus 5.5 and Claude Sonnet 5.5 in your Region. The API example also needs `awscurl` (`uv tool install awscurl==0.45`) and `jq`; they are optional and the preflight script does not check them.
 
 ```bash
 git clone https://github.com/aws-samples/sample-agentic-phishing-detection.git
@@ -138,7 +136,7 @@ export AWS_REGION=<your-region> AWS_PROFILE=<your-profile>   # every command bel
 uv run python scripts/preflight.py --profile "$AWS_PROFILE" --region "$AWS_REGION"   # checks models, AgentCore, bootstrap, tools
 
 npx aws-cdk@2.1143.0 bootstrap aws://<account-id>/$AWS_REGION aws://<account-id>/us-east-1   # once per account; skip if preflight passes it
-cd infra && export CDK_DOCKER=finch   # or docker
+cd infra && export CDK_DOCKER=docker   # or finch
 npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias>   # 8 to 16 minutes the first time; add --require-approval never in CI
 ```
 
@@ -171,9 +169,9 @@ A pre-publish gate holds a link for a person to review when the scan `FAILED`, t
 | Item                    | Amount                     | Basis                                                      |
 | ----------------------- | -------------------------- | ---------------------------------------------------------- |
 | Deployed stacks, idle   | About $14 to $15 per month | Estimate, mostly the AWS WAF web ACL; Cost Explorer agreed |
-| Model tokens per scan   | $0.103 mean                | Measured, current default, 548 model-backed scans (2026-11-16) |
-| Other services per scan | About $0.015               | Estimate from usage measured on the earlier default        |
-| 1,000 scans in a month  | About $135 to $145         | The rows above plus stored data and hourly metrics         |
+| Model tokens per scan   | $0.098 mean                | Measured, current default, 548 model-backed scans (2026-11-24) |
+| Other services per scan | About $0.012               | Measured usage, 2026-11-24, at list prices (some small services estimated) |
+| 1,000 URLs in a month   | About $130 to $140         | The rows above plus stored data and hourly metrics         |
 
 Per-service breakdown, monthly examples and assumptions (`us-west-2`, on-demand prices): [docs/cost.md](docs/cost.md). The Insights page shows your real token spend per URL, batch and model; filter Cost Explorer on the `Project` and `Owner` tags for the rest.
 
@@ -228,7 +226,7 @@ A few things stay behind and are yours to remove (a log group created at run tim
 ## Repository layout
 
 ```text
-agents/      the three specialists, the dispatcher and the tools server (Python, Strands) and the orchestrator prompt
+agents/      the three specialists, the dispatcher and the tools MCP server (Python, Strands) and the orchestrator prompt
 backend/     Lambda functions: API, CSV split, worker (orchestration), stats, sweepers, Cognito sign-up check
 contracts/   shared data models (Finding, Verdict, ScanRecord) used by every component
 infra/       AWS CDK app (Python): app.py and one construct per layer
@@ -276,7 +274,7 @@ The orchestrator answers in two calls. The first returns the compact verdict, wh
 
 ### What is Agent Registry for, and why is it off?
 
-AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers its five MCP servers and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It needs the default Harness path.
+AWS Agent Registry is a catalog of agents and MCP servers. With `-c agentRegistry=true` the stack registers five MCP records (the three specialists, the tools MCP server and the dispatcher, whose record points at the specialists Gateway) and the orchestrator looks them up once per scan, which shows how a team could govern and discover agents. It does not route calls and the scan works the same without it, so it is off by default. It needs the default Harness path.
 
 ### Can I use other models?
 

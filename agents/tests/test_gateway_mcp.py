@@ -18,6 +18,13 @@ from phish_agents.common.sigv4 import SigV4HttpxAuth
 from phish_agents.common.timing import CallRecorder
 
 GATEWAY = "https://gw-1.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
+# Gateway phish-tools where the Region offers the Web Search connector.
+TOOLS_ON_GATEWAY = (
+    "tools___capture_page",
+    "tools___capture_page_code",
+    "tools___whois_lookup",
+    "web-search___WebSearch",
+)
 RESULTS = {"id": "q1", "results": [{"url": "https://www.paypal.com/", "title": "PayPal"}]}
 
 
@@ -45,6 +52,8 @@ class FakeGateway:
                 )
             headers = {"mcp-session-id": self.session} if self.session else {}
             return self._reply(body["id"], {"protocolVersion": "2025-06-18"}, headers)
+        if body["method"] == "tools/list":
+            return self._reply(body["id"], {"tools": [{"name": n} for n in TOOLS_ON_GATEWAY]})
         if body["method"] == "tools/call":
             if body["params"]["name"] == "broken":
                 return self._error(body["id"])
@@ -71,12 +80,13 @@ class FakeGateway:
         )
 
 
-def client(fake: FakeGateway) -> GatewayMcpClient:
+def client(fake: FakeGateway, allowed_tools=None) -> GatewayMcpClient:
     return GatewayMcpClient(
         GATEWAY,
         "us-east-1",
         auth=SigV4HttpxAuth("us-east-1", credentials_provider=creds),
         transport=httpx.MockTransport(fake),
+        allowed_tools=allowed_tools,
     )
 
 
@@ -142,7 +152,7 @@ async def test_web_search_end_to_end_through_the_gateway_client():
         "us-east-1",
         "https://paypa1-login.xyz/",
         recorder,
-        client_factory=lambda url, region: client(fake),
+        client_factory=lambda url, region, tool: client(fake),
     )
     text = await search.lookup("PayPal")
     await search.close()
@@ -152,3 +162,60 @@ async def test_web_search_end_to_end_through_the_gateway_client():
 
 def test_default_factory_uses_the_gateway_client():
     assert isinstance(web_search._mcp_client(GATEWAY, "us-east-1"), GatewayMcpClient)
+
+
+# ── tool allowlist: one Gateway, several targets, IAM per Gateway ──────────────────────────
+
+
+def test_a_tool_outside_the_allowlist_is_refused_before_any_request():
+    fake = FakeGateway()
+    mcp = client(fake, allowed_tools={"tools___capture_page"}).start()
+    sent = len(fake.requests)
+    with pytest.raises(GatewayMcpError, match="not allowed"):
+        mcp.call_tool("t1", "web-search___WebSearch", {"query": "q"})
+    assert len(fake.requests) == sent
+
+
+def test_list_tools_shows_only_the_allowed_tools():
+    mcp = client(FakeGateway(), allowed_tools={"web-search___WebSearch"}).start()
+    assert [t["name"] for t in mcp.list_tools()] == ["web-search___WebSearch"]
+
+
+def test_no_allowlist_sees_every_tool():
+    mcp = client(FakeGateway()).start()
+    assert [t["name"] for t in mcp.list_tools()] == list(TOOLS_ON_GATEWAY)
+
+
+def test_the_specialists_tools_client_allows_only_the_tools_server_tools():
+    from phish_agents.common.remote_tools import ToolsClient
+
+    assert ToolsClient(GATEWAY, "us-east-1").allowed_tools == set(TOOLS_ON_GATEWAY[:3])
+
+
+async def test_tools_client_refuses_web_search_as_a_tools_error(monkeypatch):
+    from phish_agents.common import remote_tools
+
+    fake = FakeGateway()
+    real = remote_tools.GatewayMcpClient
+
+    def built(*args, **kwargs):
+        kwargs.update(auth=SigV4HttpxAuth("us-east-1", credentials_provider=creds))
+        kwargs.update(transport=httpx.MockTransport(fake))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(remote_tools, "GatewayMcpClient", built)
+    tools = remote_tools.ToolsClient(GATEWAY, "us-east-1")
+    with pytest.raises(remote_tools.ToolsGatewayError, match="WebSearch"):
+        await tools.call_json("WebSearch", {"query": "q"}, 5)
+    # Refused in the client: the handshake went out, no tools/call did.
+    assert [body.get("method") for body, _ in fake.requests] == [
+        "initialize",
+        "notifications/initialized",
+    ]
+
+
+def test_brand_visual_web_search_client_allows_only_its_search_tool():
+    mcp = web_search._mcp_client(GATEWAY, "us-east-1", "web-search___WebSearch")
+    assert mcp.allowed_tools == {"web-search___WebSearch"}
+    with pytest.raises(GatewayMcpError, match="not allowed"):
+        mcp.call_tool("t1", "tools___capture_page", {"url": "https://a.com"})

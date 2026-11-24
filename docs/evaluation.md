@@ -2,7 +2,7 @@
 
 You can measure how well each agent, and the whole team, labels a set of URLs you already know the answer to. This page also keeps the measured latency and cost of the current design and of every earlier design, so the README can stay short.
 
-**On this page:** [Run it](#run-it) · [The dataset](#the-dataset) · [Metrics](#metrics) · [Compare with hosted scanners](#compare-with-hosted-scanners) · [Accuracy on live phishing](#accuracy-on-live-phishing-2026-10-16) · [Accuracy rerun, 2026-10-21](#accuracy-rerun-2026-10-21) · [Harness path design](#harness-path-design-default-2026-10-21-to-2026-11-02) · [Prompt caching rerun](#prompt-caching-rerun-2026-10-25) · [Accuracy rerun, 2026-10-26](#accuracy-rerun-2026-10-26) · [Accuracy rerun, 2026-10-27](#accuracy-rerun-2026-10-27) · [Each latency flag on its own](#each-latency-flag-on-its-own-2026-11-03) · [Independent rerun, 2026-11-12](#independent-rerun-on-a-fresh-feed-2026-11-12) · [Latency history](#latency-history) · [Cost history](#cost-history) · [Limitations](#limitations)
+**On this page:** [Run it](#run-it) · [The dataset](#the-dataset) · [Metrics](#metrics) · [Compare with hosted scanners](#compare-with-hosted-scanners) · [Accuracy on live phishing](#accuracy-on-live-phishing-2026-10-16) · [Accuracy rerun, 2026-10-21](#accuracy-rerun-2026-10-21) · [Harness path design](#harness-path-design-default-2026-10-21-to-2026-11-02) · [Prompt caching rerun](#prompt-caching-rerun-2026-10-25) · [Accuracy rerun, 2026-10-26](#accuracy-rerun-2026-10-26) · [Accuracy rerun, 2026-10-27](#accuracy-rerun-2026-10-27) · [Each latency flag on its own](#each-latency-flag-on-its-own-2026-11-03) · [Current default, 2026-11-24](#current-default-2026-11-24) · [Dispatcher Runtime, 2026-11-16](#harness-default-with-the-dispatcher-runtime-2026-11-16) · [Independent rerun, 2026-11-12](#independent-rerun-on-a-fresh-feed-2026-11-12) · [Latency history](#latency-history) · [Cost history](#cost-history) · [Limitations](#limitations)
 
 > [!WARNING]
 > Every URL is a paid call to Amazon Bedrock and AgentCore, and each one opens real web pages. Start with `--limit 5`. A full run of the committed sample can take 20 minutes or more: the script calls each of the 4 agents for each of the 21 URLs one at a time (84 calls), and one call takes about 6 to 35 s.
@@ -108,7 +108,7 @@ Caveats: episodic memory was on, so these rescans saw earlier verdicts for the s
 
 ## Harness path design (default 2026-10-21 to 2026-11-02)
 
-The default from 2026-10-21 until the latency flags became the default on 2026-11-03 ([below](#latency-flags-on-by-default-2026-11-03)). `-c directOrchestration=false` brings back its Harness path and turns `unanimousFastPath` and `directSpecialists` off with it; `localRdap`, `directTools`, `splitToolsRuntimes`, `latencyBudgets` and `codeTextBudget=half` stay on unless you turn them off. It had orchestrator prompt caching added on 2026-10-24 and, on 2026-10-26, the brand-copy rule, code_analyst's capture budget with its raw HTML fallback and the 35 s page-specialist deadline (see [Accuracy rerun, 2026-10-26](#accuracy-rerun-2026-10-26)): one `dispatcher___analyze_all` call runs the three specialists at the same time, no Agent Registry lookup unless `-c agentRegistry=true`, orchestrator effort `medium`, verdict first.
+The default from 2026-10-21 until the latency flags became the default on 2026-11-03 ([below](#latency-flags-on-by-default-2026-11-03)). `-c directOrchestration=false` brings back its Harness path and turns `unanimousFastPath` and `directSpecialists` off with it; `localRdap`, `directTools`, `splitToolsRuntimes`, `latencyBudgets` and `codeTextBudget=half` stay on unless you turn them off. It had orchestrator prompt caching added on 2026-10-24 and, on 2026-10-26, the brand-copy rule, code_analyst's capture budget with its raw HTML fallback and the 35 s page-specialist deadline (see [Accuracy rerun, 2026-10-26](#accuracy-rerun-2026-10-26)): one `dispatch___analyze_all` call runs the three specialists at the same time, no Agent Registry lookup unless `-c agentRegistry=true`, orchestrator effort `medium`, verdict first.
 
 | Measure (test account, `us-west-2`) | Value |
 | --- | --- |
@@ -261,9 +261,42 @@ To see which of the eight latency flags matters, each one was turned off on its 
 - **No flag measurably hurt accuracy**: 46 or 47 caught phishing URLs (of 52, or of 53 in the `directSpecialists` off arm) and the same 2 of 50 false positives in every arm.
 - **Reliability.** With `directSpecialists` off, 2 of 110 scans had all three specialist findings fail (verdict unknown); no other arm had this. With `directTools` off, 1 scan was unknown because the target site rate-limited the capture.
 
-## Current default, 2026-11-16
+## Current default, 2026-11-24
 
-The numbers in the [README](../README.md#measured-results) come from this run: 600 URLs through the API on a fresh deploy of the current default (pre-check first, then the orchestrator on AgentCore Harness, the dispatcher and the three specialists, every tool through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 URLs (8 phishing, 48 legitimate) no longer served a page and are left out, so 544 are scored. The pre-check answered 52 of the 600 scans (9%) with Error 404 or Site down, at no model cost.
+The numbers in the [README](../README.md#measured-results) come from this run: 600 URLs through the API on a fresh deploy of the current default (pre-check first, then the orchestrator on AgentCore Harness, the [dispatcher](agents/dispatcher.md) as a Lambda target on Gateway `phish-specialists` and the three specialists, every tool and web search through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000), none in an earlier set. 56 URLs (14 phishing, 42 legitimate) no longer served a page and are left out, so 544 are scored. The pre-check answered 52 of the 600 scans (8.7%) with Error 404 or Site down, at no model cost. Recorded `cost_usd` matched a recomputation from stored token counts on 548 of 548 model-backed scans.
+
+| Metric | Value |
+| --- | --- |
+| Recall, caught (phishing, or suspicious at risk 50 or more) | 0.965 (276 of 286) |
+| Recall, phishing or suspicious at any risk | 0.972 (278 of 286) |
+| Recall, phishing verdict only | 0.255 (73 of 286) |
+| False positive rate | 0.047 (12 of 258), all `suspicious` at risk 50 to 60, none `phishing` |
+| Precision / accuracy / F1 | 0.958 / 0.960 / 0.962 |
+| Legitimate sites judged `unknown` | 39 of 258 |
+| Scan time, worker start to verdict | median 60.2 s, p90 78.0 s, p99 95.5 s |
+| Model cost per model-backed scan | median $0.0988, mean $0.0979, p90 $0.1237; $53.68 for 600 URLs (mean $0.0895 per URL) |
+| Throughput | 550 URLs submitted at once finished in about 27 minutes (about 20 a minute) |
+
+Where the model cost goes, per model-backed scan (548 scans; every one had exactly two Harness turns):
+
+| Call | Mean | Median | p90 |
+| --- | --- | --- | --- |
+| Opus 5.5, verdict turn | $0.0302 | $0.0294 | $0.0360 |
+| Opus 5.5, report turn | $0.0239 | $0.0239 | $0.0266 |
+| Sonnet 5.5, `code_analyst` | $0.0254 | $0.0276 | $0.0414 |
+| Sonnet 5.5, `brand_visual` | $0.0120 | $0.0118 | $0.0171 |
+| Sonnet 5.5, `url_analyst` | $0.0066 | $0.0065 | $0.0077 |
+
+- **Misses.** 3 of the 10 missed phishing URLs were preview builds of a crypto wallet's developer docs (canonical link to the official docs site, judged legitimate), which look like feed mislabels rather than phishing. 4 were low-signal pages (a hostel listing, a calculator page, an empty storefront, a hobby chat app with only a social login) at legitimate 15 to 22. 3 could not be seen (a password-protected preview, a host the browser refused, a domain answering 403 to every capture) and scored 30 to 45.
+- **False positives.** 11 of the 12 are illegal gambling sites, gambling doorways or hijacked domains redirecting to casinos, which a random top-1M sample contains; 1 is a licensed reseller store with a sign-in form (suspicious 50). None got a `phishing` verdict.
+- **Strict recall fell.** The `phishing`-verdict-only recall is 0.255, against 0.425 on 2026-11-16, while caught recall is unchanged (0.965 against 0.966), and 7 phishing URLs were judged `legitimate` (2 on 2026-11-16). About 3 of the 10 misses look like feed mislabels, which explains part of it, not all; the shift from `phishing` to high-risk `suspicious` (median risk 65 for phishing judged `suspicious`) has not been investigated yet, so do not quote strict recall from this run as stable. A gate that holds `warn` for a person still catches these pages.
+- **Memory may inflate recall.** Episodic memory was on, as by default, and the test stack's memory was heavily populated by earlier runs: 546 of 600 scans got at least one similar past scan, and 435 of 600 recalled records from earlier runs (151 on 2026-11-16). Treat recall as possibly inflated by that; deploy with `-c episodicMemory=false`, or on a fresh memory, to measure without it.
+
+## Harness default with the dispatcher Runtime, 2026-11-16
+
+Measured before the dispatcher became a Lambda target and web search moved onto `phish-tools` (2026-11-23). Same method and set builder as the current run above.
+
+The numbers in the README came from this run until 2026-11-24: 600 URLs through the API on a fresh deploy of the default of that date (pre-check first, then the orchestrator on AgentCore Harness, the dispatcher Runtime and the three specialists, every tool through Gateway `phish-tools`), `us-west-2`, `scanConcurrency` 25, episodic memory on. 300 URLs from the OpenPhish public feed the same day, 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 URLs (8 phishing, 48 legitimate) no longer served a page and are left out, so 544 are scored. The pre-check answered 52 of the 600 scans (9%) with Error 404 or Site down, at no model cost.
 
 | Metric | Value |
 | --- | --- |
@@ -470,6 +503,8 @@ Token cost only, as recorded on each scan (`cost_usd`).
 | Harness path: dispatcher, orchestrator prompt caching, 2026-10-26 rules (default 2026-10-21 to 2026-11-02) | 317-URL accuracy set, 2026-10-26 | $45.77 | $0.157 (291 model-backed scans) |
 | Four flags on, including direct orchestration (A/B arm) | 448-URL A/B, 2026-11-02 ([details](#capture-compact-view-and-latency-flags-2026-11-02)) | Not totalled here | $0.092 mean (409 live URLs) |
 | Latency flags on (default 2026-11-03 to 2026-11-15) | 448-URL A/B, 2026-11-03 ([details](#latency-flags-on-by-default-2026-11-03)) | Not totalled here | $0.090 mean (407 live URLs) |
+| Harness path, dispatcher Runtime (default 2026-11-16 to 2026-11-23) | 600-URL set, 2026-11-16 ([details](#harness-default-with-the-dispatcher-runtime-2026-11-16)) | $56.41 | $0.103 mean (548 model-backed scans), $0.094 per URL |
+| Harness path, dispatcher Lambda, web search on `phish-tools` (current default) | 600-URL set, 2026-11-24 ([details](#current-default-2026-11-24)) | $53.68 | $0.0979 mean (548 model-backed scans), $0.0895 per URL |
 
 > [!NOTE]
 > Runs before 2026-10-16 counted specialist prompt-cache reads and writes as zero (fixed on 2026-10-16), so they leave out most specialist input tokens: on a test stack the same 200-URL batch recorded about $0.25 per URL once they were counted. Runs before 2026-10-21 priced cache reads at 0.1 times the input price; the current `pricing.json` uses the published 0.05 times.

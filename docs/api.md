@@ -21,15 +21,16 @@ The Python example below does the same with `boto3` and `SigV4Auth`. An unsigned
 
 ## Before you start
 
-- The API base URL. It is the `ApiUrl` stack output:
+- The API base URL. It is the `ApiUrl` stack output of `PhishTriageAgentic`, or `<Name>TriageAgentic` if you deployed with `-c appName=<name>`:
 
   ```bash
-  export API=$(aws cloudformation describe-stacks --stack-name PhishTriageAgentic \
+  export STACK=PhishTriageAgentic   # or <Name>TriageAgentic
+  export API=$(aws cloudformation describe-stacks --stack-name "$STACK" \
     --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
   ```
 
 - An IAM principal allowed `execute-api:Invoke` on the API. The stack creates a managed policy for this: attach the `ApiInvokePolicyArn` output to your role or user. See [security.md](security.md).
-- `awscurl` for the shell examples: `uv tool install awscurl==0.45`.
+- `awscurl` and `jq` for the shell examples (optional, and not checked by `scripts/preflight.py`; any SigV4 client works): `uv tool install awscurl==0.45`.
 
 Every example runs in your own account. Set `AWS_REGION` to the Region you deployed to.
 
@@ -161,12 +162,12 @@ How to read it:
 
 ### HTTP 404 and site-down fast paths
 
-The worker calls `precheck_url` on the tools server, which opens the URL once in AgentCore Browser (navigation only, no screenshot). By default the pre-check runs first, before any model. On the direct path (`-c directOrchestration=true`) the three specialists start at the same time as the pre-check. When the browser refuses the URL, cannot reach it or times out, the tool follows up with one plain HTTP probe (GET, up to 5 redirects, nothing executed). The worker waits at most 22 seconds for the answer.
+The worker calls `precheck_url` on the tools MCP server, which opens the URL once in AgentCore Browser (navigation only, no screenshot). By default the pre-check runs first, before any model. On the direct path (`-c directOrchestration=true`) the three specialists start at the same time as the pre-check. When the browser refuses the URL, cannot reach it or times out, the tool follows up with one plain HTTP probe (GET, up to 5 redirects, nothing executed). The worker waits at most 22 seconds for the answer.
 
 - If the page answers HTTP 404 the scan finishes at once with no orchestrator call: `verdict.verdict` is `error_404`, `risk_score` 10, `confidence` `high`, `action` `allow`, a one-sentence `summary`, and a short fixed `report_markdown` stating the page returned HTTP 404.
 - If the site is down (DNS failure, connection refused or reset, HTTP 410, or a redirect to a host that does not resolve) the scan finishes the same way with `verdict.verdict` `site_down` (shown as "Site down"), `risk_score` 10, `confidence` `high`, `action` `allow`, and a fixed `report_markdown` that lists the addresses tried (defanged, in order) and the reason the probe gave.
 
-In both cases `report_status` is `READY` immediately, `report_markdown` carries the bold human-review disclaimer at both ends, `findings` is empty, `cost_usd` is `0`, and `calls` holds one `browser` entry named `precheck`. By default no specialist or orchestrator runs, so nothing beyond the pre-check is billed. On the direct path the specialists that already started still finish and their tokens are billed to your account, but the worker never reads their Findings and `cost_usd` does not include them. Every other outcome (page reachable, unreachable, blocked, or a precheck that failed or timed out) runs the normal analysis; a precheck problem never fails a scan. The worker calls the tools runtime directly for the pre-check; every deployment has it, and the fast paths are skipped only if `TOOLS_RUNTIME_ARN` is not set on the worker. `site_down` counts in batch `verdict_counts`, the `/stats` totals and daily series, and the CSV export like any other verdict.
+In both cases `report_status` is `READY` immediately, `report_markdown` carries the bold human-review disclaimer at both ends, `findings` is empty, `cost_usd` is `0`, and `calls` holds one `browser` entry named `precheck`. By default no specialist or orchestrator runs, so nothing beyond the pre-check is billed. On the direct path the specialists that already started still finish and their tokens are billed to your account, but the worker never reads their Findings and `cost_usd` does not include them. Every other outcome (page reachable, unreachable, blocked, or a precheck that failed or timed out) runs the normal analysis; a precheck problem never fails a scan. The worker calls the tools MCP server directly for the pre-check, not through a Gateway; every deployment has it, and the fast paths are skipped only if `TOOLS_RUNTIME_ARN` is not set on the worker. `site_down` counts in batch `verdict_counts`, the `/stats` totals and daily series, and the CSV export like any other verdict.
 
 ### Signals, capture notes and code insights
 
@@ -215,7 +216,7 @@ awscurl --service execute-api --region "$AWS_REGION" -X POST "$API/batches" \
 awscurl --service execute-api --region "$AWS_REGION" "$API/batches/b7c0..."
 ```
 
-`GET /batches/{id}` returns the batch record under `batch` (counts, cost, and the upload lifecycle: `awaiting_upload`, `split_at`, `error`), then `invalid_rows`, `error`, `p50_ms`, `p95_ms` with `p50_over_max`, `p95_over_max`, `p50_bound`, `p95_bound`, and one page of the batch's scans under `items` (`?limit=` up to 200; pass the returned `next` as `?next=` for the following page) beside it. The percentiles are exact when that first page holds every timed scan of the batch; otherwise they come from the batch's latency buckets, are bucket upper edges, and carry `*_bound: true`. A batch with an `error` is closed: `completed_at` is set and it will not progress.
+`GET /batches/{id}` returns the batch record under `batch` (`status_counts` and `verdict_counts`, `cost_usd`, and the upload lifecycle: `awaiting_upload`, `split_at`, `error`), then `invalid_rows`, `error`, `p50_ms`, `p95_ms` with `p50_over_max`, `p95_over_max`, `p50_bound`, `p95_bound`, and one page of the batch's scans under `items` (`?limit=` up to 200; pass the returned `next` as `?next=` for the following page) beside it. The percentiles are exact when that first page holds every timed scan of the batch; otherwise they come from the batch's latency buckets, are bucket upper edges, and carry `*_bound: true`. A batch with an `error` is closed: `completed_at` is set and it will not progress.
 
 ## Scan up to 1,000 URLs from a CSV
 

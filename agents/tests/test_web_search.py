@@ -69,7 +69,7 @@ def make_search(fake: FakeMcp, scan_url: str = "https://paypa1-login.xyz/", **kw
         "us-east-1",
         scan_url,
         CallRecorder(),
-        client_factory=lambda url, region: fake,
+        client_factory=lambda url, region, tool: fake,
         **kw,
     )
 

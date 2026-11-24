@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: MIT-0
 """Look up a brand's official website through Amazon Bedrock AgentCore Web Search.
 
-The Web Search connector sits behind a small AgentCore Gateway in us-east-1 (the edge stack).
-The runtime reaches it over MCP (JSON-RPC over HTTPS) with SigV4 from its own role. Everything
-here fails soft: when the gateway is not configured, slow or refusing, the tool says so in one
-line and brand_visual judges the page exactly as it does without web search.
+The Web Search connector is a target on the tools Gateway (phish-tools) where the Region offers
+it, else on a small AgentCore Gateway in the us-east-1 edge stack; WEB_SEARCH_GATEWAY_URL names
+whichever one. The runtime reaches it over MCP (JSON-RPC over HTTPS) with SigV4 from its own
+role. Everything here fails soft: when the gateway is not configured, slow or refusing, the tool
+says so in one line and brand_visual judges the page exactly as it does without web search.
 """
 
 from __future__ import annotations
@@ -61,10 +62,11 @@ class McpClientLike(Protocol):
     ) -> Mapping[str, Any]: ...
 
 
-def _mcp_client(url: str, region: str) -> McpClientLike:
+def _mcp_client(url: str, region: str, tool_name: str = DEFAULT_TOOL_NAME) -> McpClientLike:
     # Not the Strands MCPClient: its mcp 2.2.0 handshake uses a protocol version the Gateway
-    # refuses (see common/gateway_mcp.py).
-    return GatewayMcpClient(url, region, timeout_s=CALL_TIMEOUT_S)
+    # refuses (see common/gateway_mcp.py). The allowlist is the one search tool: on the tools
+    # Gateway this client must never reach the browser or RDAP tools.
+    return GatewayMcpClient(url, region, timeout_s=CALL_TIMEOUT_S, allowed_tools={tool_name})
 
 
 def _clean_brand(brand: str) -> str:
@@ -132,7 +134,7 @@ class WebSearch:
         *,
         tool_name: str = DEFAULT_TOOL_NAME,
         max_lookups: int = MAX_LOOKUPS,
-        client_factory: Callable[[str, str], McpClientLike] = _mcp_client,
+        client_factory: Callable[[str, str, str], McpClientLike] = _mcp_client,
     ) -> None:
         self.url, self.region, self.tool_name = url, region, tool_name
         self.scan_host = _host(scan_url)
@@ -212,7 +214,7 @@ class WebSearch:
 
     async def _search(self, query: str) -> Mapping[str, Any]:
         if self._client is None:
-            client = self._client_factory(self.url, self.region)
+            client = self._client_factory(self.url, self.region, self.tool_name)
             # start() blocks while it connects, so it runs off the event loop.
             try:
                 await asyncio.wait_for(asyncio.to_thread(client.start), START_TIMEOUT_S + 1)

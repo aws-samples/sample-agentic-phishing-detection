@@ -123,11 +123,12 @@ class ScanPipeline(Construct):
             # The worker calls precheck_url on the tools Runtime itself (404 and site-down fast
             # path), not through a Gateway.
             "TOOLS_RUNTIME_ARN": agents.tools_runtime.agent_runtime_arn,
-            # -c directOrchestration: dispatcher plus two Converse calls instead of the Harness.
+            # -c directOrchestration: the dispatcher Lambda plus two Converse calls instead of
+            # the Harness.
             **(
                 {
                     "ORCHESTRATION_MODE": "direct",
-                    "DISPATCHER_RUNTIME_ARN": agents.dispatcher.agent_runtime_arn,
+                    "DISPATCHER_FUNCTION_ARN": agents.dispatcher.function_arn,
                     **({"UNANIMOUS_FAST_PATH": "1"} if cfg.unanimous_fast_path else {}),
                     **(
                         {

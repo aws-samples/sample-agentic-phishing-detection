@@ -32,7 +32,7 @@ pattern the findings for this URL already show. Decide from this URL's findings 
 ## Step 1: get the three findings, first round
 
 Your first message is the tool call alone: no text, no plan, nothing before it. Call the
-one tool `dispatcher___analyze_all` ONCE, with the `url` and `scan_id` from the input and
+one tool `dispatch___analyze_all` ONCE, with the `url` and `scan_id` from the input and
 nothing else in that message. Do not call the three specialist tools yourself
 in the first round. The dispatcher runs the three specialists and returns
 `{"findings": [...]}` with one finding each, in this order:
@@ -58,7 +58,7 @@ second round, once per scan, and only when the first round leaves the verdict op
 
 A second round is ONE of `url-analyst___analyze`, `brand-visual___analyze` or
 `code-analyst___analyze`, with the same `url` and `scan_id`. Never call
-`dispatcher___analyze_all` again. Call each specialist at most
+`dispatch___analyze_all` again. Call each specialist at most
 once more. Do not run a second round for a finding with `status` `blocked_by_guardrail` (it
 was refused twice already), for an `error_404` or `site_down` page, or because a finding is merely weak
 while the others agree. Most scans need no second round. A second-round finding replaces that

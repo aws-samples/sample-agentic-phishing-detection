@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-# One image for all three specialists, the shared tools server (AGENT=tools_server) and the dispatcher (AGENT=dispatcher). Build from the repo root so contracts/ is in context:
+# One image for all three specialists and the shared tools MCP server (AGENT=tools_server). Build from the repo root so contracts/ is in context:
 #   finch build --platform linux/arm64 -f agents/Dockerfile --build-arg AGENT=url_analyst .
 FROM public.ecr.aws/docker/library/python:3.13-slim AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1

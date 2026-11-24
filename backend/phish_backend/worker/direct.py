@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""Direct orchestration: the worker runs the dispatcher itself and asks the orchestrator
-model for the verdict in one Converse call, with the findings in the message.
+"""Direct orchestration: the worker invokes the dispatcher Lambda itself and asks the
+orchestrator model for the verdict in one Converse call, with the findings in the message.
 
 The harness path pays an Opus planning turn before the specialists start and, on roughly one
 scan in seven, a 30 s+ harness session start-up. Here the specialists start as soon as the scan
@@ -124,47 +124,39 @@ def _tool_text(raw: str) -> str:
     try:
         body = json.loads(text)
     except ValueError as exc:
-        raise DispatchError("dispatcher response is not JSON") from exc
+        raise DispatchError("runtime response is not JSON") from exc
     if not isinstance(body, dict) or "error" in body:
-        raise DispatchError("dispatcher returned a JSON-RPC error")
+        raise DispatchError("runtime returned a JSON-RPC error")
     result = body.get("result")
     if not isinstance(result, dict) or result.get("isError"):
-        raise DispatchError("dispatcher reported a tool error")
+        raise DispatchError("runtime reported a tool error")
     try:
         return result["content"][0]["text"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise DispatchError("dispatcher result has no text content") from exc
+        raise DispatchError("runtime result has no text content") from exc
 
 
 def dispatch(client, dispatcher_arn: str, url: str, scan_id: str) -> int:
-    """Run analyze_all on the dispatcher runtime; returns how many findings came back.
+    """Invoke the dispatcher Lambda (the function behind dispatch___analyze_all) with the
+    tool arguments, as the Gateway does; returns how many findings came back.
 
     The Findings themselves are read from S3 afterwards (each specialist persists its own,
     the dispatcher persists error findings), so the S3 copy stays the one source of truth.
     """
-    request = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "analyze_all",
-            "arguments": {"url": url, "scan_id": scan_id},
-        },
-    }
     try:
-        response = client.invoke_agent_runtime(
-            agentRuntimeArn=dispatcher_arn,
-            runtimeSessionId=f"{scan_id}-dispatch-{uuid.uuid4().hex}",
-            payload=json.dumps(request),
-            contentType="application/json",
-            accept="application/json, text/event-stream",
+        response = client.invoke(
+            FunctionName=dispatcher_arn,
+            InvocationType="RequestResponse",
+            Payload=json.dumps({"url": url, "scan_id": scan_id}).encode("utf-8"),
         )
-        raw = response["response"].read()
+        raw = response["Payload"].read()
     except Exception as exc:  # noqa: BLE001 - boto errors vary; all mean "dispatch failed"
         raise DispatchError(type(exc).__name__) from exc
-    text = _tool_text(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
+    if response.get("FunctionError"):
+        # An unhandled error or a timeout in the function; the payload is the error report.
+        raise DispatchError(f"dispatcher function error: {response['FunctionError']}")
     try:
-        findings = json.loads(text)["findings"]
+        findings = json.loads(raw)["findings"]
     except (ValueError, KeyError, TypeError) as exc:
         raise DispatchError("dispatcher result has no findings") from exc
     return len(findings) if isinstance(findings, list) else 0
@@ -192,8 +184,8 @@ def _analyze(client, runtime_arn: str, url: str, scan_id: str) -> bool:
 
 def dispatch_specialists(client, runtime_arns: dict[str, str], url: str, scan_id: str) -> int:
     """DIRECT_SPECIALISTS=1: the three specialists invoked from the worker, concurrently,
-    without the dispatcher Runtime in between (one Runtime hop less, and so one less chance of
-    a Runtime session start lag). Returns how many answered; never raises.
+    without the dispatcher Lambda in between (one hop less). Returns how many answered; never
+    raises.
 
     Each specialist persists its own Finding to S3, which stays the one source of truth. A
     specialist that fails writes nothing, and load_findings turns that into an error Finding

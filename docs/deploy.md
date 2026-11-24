@@ -22,8 +22,8 @@ You can deploy this sample into your own AWS account, in any Region where Amazon
 git clone https://github.com/aws-samples/sample-agentic-phishing-detection.git
 cd sample-agentic-phishing-detection
 uv sync --all-packages
-export AWS_REGION=<your-region>
-uv run python scripts/preflight.py --profile <your-profile> --region "$AWS_REGION"
+export AWS_REGION=<your-region> AWS_PROFILE=<your-profile>   # the CDK and AWS CLI commands below all use this
+uv run python scripts/preflight.py --profile "$AWS_PROFILE" --region "$AWS_REGION"
 ```
 
 Add `--agent-registry` if you will deploy with `-c agentRegistry=true`; it also checks that AWS Agent Registry answers in your Region.
@@ -54,7 +54,7 @@ export CDK_DOCKER=docker   # or finch
 npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias>
 ```
 
-Set `owner` to your team or alias. Without it every resource is tagged `Owner=phish-triage-owner`, and nobody can tell from Cost Explorer who is paying. This creates two stacks: `PhishTriageAgenticEdge` in `us-east-1` (the web ACL and, with the default `-c webSearch=true`, the AgentCore Web Search Gateway; in a Region that offers Web Search, that Gateway moves to the regional stack instead, still a Gateway of its own and never a target on the tools Gateway, and the edge stack has no Gateway) and `PhishTriageAgentic` in your Region (everything else).
+Set `owner` to your team or alias. Without it every resource is tagged `Owner=phish-triage-owner`, and nobody can tell from Cost Explorer who is paying. This creates two stacks: `PhishTriageAgentic` in your Region, with everything else, and `PhishTriageAgenticEdge` in `us-east-1`, with the AWS WAF web ACL. In a Region that offers the AgentCore Web Search connector (`us-east-1`, `us-east-2`, `us-west-2`, `eu-west-1`, `ap-southeast-2`, `ap-northeast-1` and `us-gov-west-1`), web search is a target on the tools Gateway `<appName>-tools` in `PhishTriageAgentic`, so in `us-west-2`, the default, the edge stack holds only the web ACL; in any other Region the edge stack also holds the fallback `<appName>-web-search` Gateway.
 
 Measured durations, from our test account in `us-west-2` on 2026-09-30 with Finch on an Apple silicon laptop: creating `PhishTriageAgentic` took 476 s (about 8 minutes), and in-place updates took 220 s and 238 s. These are per-stack times for `PhishTriageAgentic` only. Updating a stack deployed before the scans table had its `status-queued_at` index adds that index in place (the table is not replaced); DynamoDB backfills it from the stored scans before that update finishes, so that one update takes longer on a table with many stored scans. A timed first `deploy --all` of a second copy (`-c appName=verify`, same account, laptop and Region, 2026-10-15) took 540 s end to end, including both stacks and the container image builds, and its first scans answered at once. A first `deploy --all` from a fresh clone on 2026-11-03 took about 16 minutes, most of it building the container images. Your times depend on your network and container runtime.
 
@@ -84,6 +84,20 @@ By default the console is served on its `*.cloudfront.net` name, and CloudFront 
 2. Register with your email, open the email from Cognito, and sign in with the temporary password. Choose a new password when asked.
 3. Scan `https://example.com`. You should get **legitimate**, and the report panel shows a progress note until the full report is ready.
 
+## Upgrading a stack deployed before this release
+
+A stack deployed before the dispatcher became a Lambda function (2026-11-23) upgrades with one `cdk deploy --all`, with the same `-c` flags as your original deploy. No manual step and no deploy order are needed:
+
+- The dispatcher's Gateway target is now named `dispatch` (tool `dispatch___analyze_all`), so the new Lambda target never clashes with the old `dispatcher` target, which CloudFormation removes after the update.
+- In a Region that offers the Web Search connector, web search moves onto `<appName>-tools`. `--all` updates the edge stack first (the main stack reads the WAF ACL from it), which removes the edge web search Gateway and its exports; the main stack then stops importing them, which the CDK export reader tolerates. Verified on 2026-11-24 by upgrading a sandbox from the previous release with one `deploy --all`.
+
+The `DispatcherRuntimeArn` stack output is gone and `DispatcherFunctionArn` replaces it; update anything that read it. Anything that matched the tool name `dispatcher___analyze_all` (log searches, dashboards) should match `dispatch___analyze_all`. Stored scan records are unchanged: the dispatcher call was never a `Call` row, so `kind` and `name` values stay the same.
+
+Troubleshooting:
+
+- `A target with name 'dispatcher' already exists in this gateway` (HTTP 409): the code you deployed named the Lambda target `dispatcher` (an earlier copy of this release). Update to this code and deploy again.
+- Main stack in `UPDATE_ROLLBACK_FAILED` with `Error importing /cdk/exports/...WebSearchGateway...` from `Custom::CrossRegionExportReader`: the main stack update failed for another reason after the edge stack had already removed its web search exports, and the rollback cannot re-import them. Continue the rollback skipping that reader (`aws cloudformation continue-update-rollback --stack-name <Name>TriageAgentic --resources-to-skip <reader logical id>`), fix the first error, and run `deploy --all` again; the forward update only releases those exports, which the reader tolerates when they are gone.
+
 ## Clean up
 
 ```bash
@@ -97,7 +111,6 @@ This deletes both stacks and their data: tables, buckets, the user pool (and eve
 
 | Left behind                                  | How to remove it                                                                                                            |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| The orchestrator harness log group           | On the default Harness path (not with `-c directOrchestration=true`): AgentCore creates it on the first scan, under `/aws/bedrock-agentcore/` with `phish_orchestrator` in its name, with no retention. Delete it, or set a retention after the first scan with `aws logs put-retention-policy` |
 | The orchestrator's former managed memory     | Only on a stack first deployed before 2026-10-16: the harness ran with managed memory then (`<appName>_orchestrator-*` in AgentCore Memory). An update turns it off and detaches it but does not delete it or its records; delete it in the AgentCore console or with `aws bedrock-agentcore-control delete-memory` |
 | CDK bootstrap stacks (`CDKToolkit`)          | Keep them if you use CDK elsewhere. Otherwise delete the stack in both Regions, then its staging bucket                     |
 | Container images in the CDK asset repository | Removed with the bootstrap stack, or delete the images in Amazon ECR                                                        |

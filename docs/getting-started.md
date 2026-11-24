@@ -13,7 +13,7 @@ From an empty AWS account to your first verdict, your first API call and a clean
 | Python 3.13 and uv                                             | `uv --version`                                                                       |
 | Finch or Docker, with ARM64 builds                             | `finch version` or `docker version`                                                  |
 | Amazon Bedrock access to Claude Opus 5.5 and Claude Sonnet 5.5 | `uv run python scripts/preflight.py --profile <your-profile> --region <your-region>` |
-| For the API examples: `awscurl` (`uv tool install awscurl==0.45`) and `jq` | `awscurl --version` and `jq --version`                                         |
+| Optional, for the API examples only: `awscurl` (`uv tool install awscurl==0.45`) and `jq`; the preflight script does not check them | `awscurl --version` and `jq --version`                                         |
 
 ## Deploy
 
@@ -42,7 +42,7 @@ From an empty AWS account to your first verdict, your first API call and a clean
 
    ```bash
    cd infra
-   export CDK_DOCKER=finch   # or docker
+   export CDK_DOCKER=docker   # or finch
    npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias>
    ```
 
@@ -177,12 +177,7 @@ Every response except `GET /health` carries a top-level `disclaimer` field, and 
 
 ### How long a scan takes
 
-| Scenario (test stack, `us-west-2`) | To the verdict | Source |
-| --- | --- | --- |
-| Direct path (the default from 2026-11-03 to 2026-11-15), 448 URLs submitted at once, `scanConcurrency` 25 (2026-11-03) | Median 18.6 s, p90 31.2 s from worker start; median 325 s from submit, because most of that is queue wait at 25 scans in flight | [evaluation.md](evaluation.md#latency-flags-on-by-default-2026-11-03) |
-| Dead or HTTP 404 URL, answered by the pre-check (Harness path, 2026-10-18) | 1.0 to 6.7 s | [evaluation.md](evaluation.md#harness-path-design-default-2026-10-21-to-2026-11-02) |
-
-The report follows the verdict; it was not timed on its own on the direct path. Current latency is in the [README](../README.md#measured-results). Earlier designs are in [evaluation.md](evaluation.md#latency-history).
+On the current default, a single scan on a fresh, idle stack took 20 to 50 s from worker start to the verdict (test stack, `us-west-2`, 2026-11-24). Under load it is longer: the 600-URL benchmark, 25 scans in flight, had a median of 60 s and a p90 of 78 s ([README](../README.md#measured-results)), not counting queue wait. A dead or HTTP 404 URL ends at the pre-check in a few seconds. The report follows the verdict. Earlier designs are in [evaluation.md](evaluation.md#latency-history).
 
 ## Scan many URLs
 
@@ -220,7 +215,6 @@ A few things stay behind and are yours to remove:
 
 | Left behind                                                                                           | How to remove it                              |
 | ----------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| The orchestrator harness log group (`/aws/bedrock-agentcore/`, with `<appName>_orchestrator`, by default `phish_orchestrator`, in its name), created on the first scan (the default Harness path) | Delete it by hand |
 | The orchestrator's former managed memory, only on a stack first deployed before 2026-10-16            | See [docs/deploy.md](deploy.md#clean-up) |
 | CDK bootstrap stacks (`CDKToolkit`) in your Region and `us-east-1`                                    | Keep them if you use CDK elsewhere            |
 | Log groups of the CDK helper Lambdas (`/aws/lambda/<Name>TriageAgentic-*`, untagged)                  | Delete them by hand                           |

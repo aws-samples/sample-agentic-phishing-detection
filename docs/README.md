@@ -1,12 +1,12 @@
 # Documentation
 
-**Current results (2026-11-16, 600 URLs, default configuration):**
+**Current results (2026-11-24, 600 URLs, default configuration):**
 
 | Phishing caught | Legitimate sites flagged | Scan time, median | Model cost per scan, median |
 | :---: | :---: | :---: | :---: |
-| **96.6%** | **5.6%** | **59 s** | **$0.10** |
+| **96.5%** | **4.7%** | **60 s** | **$0.10** |
 
-How these were measured: [README](../README.md#measured-results) and [Evaluation](evaluation.md#current-default-2026-11-16).
+How these were measured: [README](../README.md#measured-results) and [Evaluation](evaluation.md#current-default-2026-11-24).
 
 Start with [Getting started](getting-started.md) to deploy the sample and run your first scan. The pages below go deeper, in roughly the order you will need them.
 

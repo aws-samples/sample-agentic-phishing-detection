@@ -1,15 +1,21 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""The dispatcher MCP server: one Gateway tool, `analyze_all`, that runs the three specialists
-at the same time and returns their three Findings.
+"""The dispatcher Lambda: the one Gateway tool `analyze_all` (a Lambda target named
+`dispatch` on Gateway phish-specialists, so dispatch___analyze_all), which runs the three
+specialists at the same time and returns their three Findings.
 
 The AgentCore Harness runs same-turn Gateway tool calls one after another, so three specialist
 tools cost the sum of their latencies (spike 2026-10-16). The orchestrator calls
-`dispatcher___analyze_all` once and the wait is the slowest specialist. It returns
+`dispatch___analyze_all` once and the wait is the slowest specialist. It returns
 `{"findings": [Finding, Finding, Finding]}`, each the specialist's own Finding (status,
 signals, latency_ms, usage and calls unchanged). It never raises: a failed or timed-out
 specialist becomes an error Finding, written to S3 only if the specialist has not already
 written its own. The per-specialist Gateway tools stay for the optional second round.
+
+The Gateway passes the tool arguments as the event ({"url": ..., "scan_id": ...}) and turns the
+returned JSON object into the tool result. With -c directOrchestration the worker invokes this
+function itself with the same event and reads the same object. It makes no model call, so it
+needs no AgentCore Runtime: a Lambda function starts faster and is billed per call.
 """
 
 from __future__ import annotations
@@ -24,10 +30,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore.config import Config
-from mcp.server import MCPServer
 
 from phish_agents.common import latency
-from phish_agents.common import server as common_server
 from phish_agents.common.finding import error_finding, persist_error_finding, validate_scan_id
 from phish_agents.common.timing import CallRecorder
 from phish_contracts.models import (
@@ -40,6 +44,7 @@ from phish_contracts.models import (
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # Must stay above every common/server.py deadline_s() plus session start-up (tested).
 RUNTIME_READ_TIMEOUT_S = 52 if latency.TIGHT_BUDGETS else 45
@@ -126,13 +131,28 @@ async def dispatch(
 
     async def one(agent: SpecialistName) -> Finding:
         recorder = CallRecorder()
+        begin = time.monotonic()
 
         def blocking() -> Finding:
             with recorder.record(CallKind.SPECIALIST, agent):
                 return call_fn(client, os.environ[f"{agent.upper()}_RUNTIME_ARN"], url, scan_id)
 
+        def timing(status: str) -> None:
+            # Start and end offsets from the dispatch start: overlapping windows in the log are
+            # the evidence that the three specialists ran concurrently.
+            logger.info(
+                "specialist scan=%s agent=%s status=%s start_ms=%d end_ms=%d",
+                scan_id,
+                agent,
+                status,
+                int((begin - started) * 1000),
+                int((time.monotonic() - started) * 1000),
+            )
+
         try:
-            return await asyncio.wait_for(loop.run_in_executor(pool, blocking), deadline_s)
+            finding = await asyncio.wait_for(loop.run_in_executor(pool, blocking), deadline_s)
+            timing(getattr(finding.status, "value", str(finding.status)))
+            return finding
         except Exception as exc:  # noqa: BLE001 - one failed specialist must not hide the others
             ref = uuid.uuid4().hex[:12]
             logger.exception("specialist call failed agent=%s ref=%s", agent, ref)
@@ -142,6 +162,7 @@ async def dispatch(
                 started,
                 recorder,
             )
+            timing("call_failed")
             try:
                 # if_absent: a specialist that finished after our timeout has already written
                 # its real Finding, which this error must not overwrite.
@@ -160,7 +181,7 @@ async def dispatch(
     return list(findings)
 
 
-async def run_analyze_all(url: str, scan_id: str, **kwargs) -> str:
+async def run_analyze_all(url: str, scan_id: str, **kwargs) -> dict:
     try:
         findings = await dispatch(url, scan_id, **kwargs)
     except Exception as exc:  # noqa: BLE001 - last resort: still three Findings
@@ -169,36 +190,23 @@ async def run_analyze_all(url: str, scan_id: str, **kwargs) -> str:
         findings = [
             _failed(a, f"dispatcher failed: {type(exc).__name__}", started) for a in SPECIALISTS
         ]
-    return json.dumps(
-        {
-            "findings": [
-                f.model_dump(mode="json", exclude=set(MODEL_HIDDEN_FINDING_FIELDS))
-                for f in findings
-            ]
-        }
-    )
+    return {
+        "findings": [
+            f.model_dump(mode="json", exclude=set(MODEL_HIDDEN_FINDING_FIELDS)) for f in findings
+        ]
+    }
 
 
-def build_server(**kwargs) -> MCPServer:
-    mcp = MCPServer("phish-dispatcher")
-
-    @mcp.tool(
-        name="analyze_all",
-        description=(
-            "Run all three phishing specialists (url_analyst, brand_visual, code_analyst) on one "
-            'URL at the same time and return {"findings": [...]} with one Finding each, in that '
-            "order. A specialist that fails comes back as a Finding with status error."
-        ),
-    )
-    async def analyze_all(url: str, scan_id: str) -> str:
-        return await run_analyze_all(url, scan_id, **kwargs)
-
-    return mcp
+def _tool_name(context) -> str:
+    """The Gateway's tool name (dispatch___analyze_all); empty on a direct invoke."""
+    custom = getattr(getattr(context, "client_context", None), "custom", None)
+    return str(custom.get("bedrockAgentCoreToolName", "")) if isinstance(custom, dict) else ""
 
 
-def main() -> None:
-    common_server.serve(build_server())
-
-
-if __name__ == "__main__":
-    main()
+def handler(event, context) -> dict:
+    """Lambda entry point. The event is the tool arguments; anything else reads as empty, which
+    validate_scan_id turns into three error Findings."""
+    event = event if isinstance(event, dict) else {}
+    url, scan_id = str(event.get("url") or ""), str(event.get("scan_id") or "")
+    logger.info("dispatch start scan=%s tool=%s", scan_id[:64], _tool_name(context) or "direct")
+    return asyncio.run(run_analyze_all(url, scan_id))

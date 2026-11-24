@@ -99,7 +99,14 @@ def flatten(value) -> str:
         return value
     assert "Fn::Join" in value, value
     sep, parts = value["Fn::Join"]
-    return sep.join(p if isinstance(p, str) else "x" for p in parts)
+    # A Gateway URL attribute (the dispatcher record) stands for a whole URL.
+    return sep.join(
+        p if isinstance(p, str) else GATEWAY_URL if "GatewayUrl" in json.dumps(p) else "x"
+        for p in parts
+    )
+
+
+GATEWAY_URL = "https://gw.gateway.bedrock-agentcore.us-west-2.amazonaws.com/mcp"
 
 
 def test_every_synthesized_record_passes_the_schema(template):
@@ -114,6 +121,25 @@ def test_every_synthesized_record_passes_the_schema(template):
         validate_server(doc)
         assert doc["name"].startswith("com.phishtriage/")
         validate_tools(json.loads(flatten(server["AdditionalData"]["Tools"]["Data"])))
+
+
+def test_the_dispatcher_record_names_the_specialists_gateway(template):
+    # The dispatcher is a Lambda target, so the MCP endpoint serving dispatch___analyze_all
+    # is the specialists Gateway itself.
+    [record] = [
+        r["Properties"]
+        for r in template.find_resources("AWS::AgentRegistry::RegistryRecord").values()
+        if r["Properties"]["Name"] == "Dispatcher"
+    ]
+    data = json.dumps(record["Descriptors"]["McpServer"]["Data"])
+    gateways = template.find_resources(
+        "AWS::BedrockAgentCore::Gateway", {"Properties": {"Name": "phish-specialists"}}
+    )
+    [gateway_id] = gateways
+    assert gateway_id in data and "GatewayUrl" in data
+    tools_data = record["Descriptors"]["McpServer"]["AdditionalData"]["Tools"]["Data"]
+    tools = json.loads(flatten(tools_data))
+    assert [t["name"] for t in tools["tools"]] == ["analyze_all"]
 
 
 def test_server_names_are_unique(template):

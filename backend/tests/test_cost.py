@@ -10,7 +10,8 @@ import pytest
 from phish_backend.common import cost
 from phish_contracts.models import Usage
 
-# AWS Price List API (AmazonBedrockFoundationModels, on-demand), read 2026-10-21.
+# AWS Price List API (AmazonBedrockFoundationModels, on-demand), read 2026-10-21 and again
+# 2026-11-24 (unchanged).
 GLOBAL = {"opus": (4.00, 20.00), "sonnet": (2.00, 10.00), "haiku": (1.00, 5.00)}
 REGIONAL = {"opus": (4.40, 22.00), "sonnet": (2.20, 11.00), "haiku": (1.10, 5.50)}
 BASE = {
@@ -32,7 +33,7 @@ def one_million_each(model_id: str) -> Usage:
 def test_pricing_records_its_source_and_check_date():
     data = pricing()
     assert data["source"].startswith("AWS Price List API")
-    assert data["checked"] == "2026-10-21"
+    assert data["checked"] == "2026-11-24"
     assert set(data["geo_prefixes"]) == {"us", "eu", "apac", "au", "jp"}
 
 

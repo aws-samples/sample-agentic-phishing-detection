@@ -187,7 +187,7 @@ def test_every_mcp_server_is_stateless():
     as a second line."""
     assert server.HTTP_OPTIONS["stateless_http"] is True
     pkg = Path(server.__file__).resolve().parents[1]
-    runners = [p for p in pkg.rglob("*.py") if ".run(" in p.read_text()]
+    # asyncio.run (the dispatcher Lambda handler) starts an event loop, not an MCP server.
+    runners = [p for p in pkg.rglob("*.py") if ".run(" in p.read_text().replace("asyncio.run(", "")]
     assert runners == [Path(server.__file__).resolve()]
-    for name in ("tools_server", "dispatcher"):
-        assert "common_server.serve(" in (pkg / name / "server.py").read_text()
+    assert "common_server.serve(" in (pkg / "tools_server" / "server.py").read_text()

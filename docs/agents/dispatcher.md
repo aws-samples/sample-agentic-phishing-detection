@@ -2,16 +2,20 @@
 
 Runs the three specialists at the same time and hands the orchestrator their three Findings in one reply. It makes no model call of its own.
 
-By default the dispatcher is on the scan path: the orchestrator on AgentCore Harness calls it once per scan, after the pre-check, and it runs the three specialists at the same time. On the direct path (`-c directOrchestration=true`) it is deployed but idle, because the worker invokes the three specialists itself, unless `-c directSpecialists=false`, where the worker calls the dispatcher instead.
+By default the dispatcher is on the scan path: the orchestrator on AgentCore Harness calls it once per scan, after the pre-check, through Gateway `phish-specialists`, and it runs the three specialists at the same time. It is an AWS Lambda function registered as a Lambda target on that Gateway, so it runs only when it is called: there is no always-on Runtime, container image or session behind it. On the direct path (`-c directOrchestration=true`) it is deployed but idle, because the worker invokes the three specialists itself, unless `-c directSpecialists=false`, where the worker invokes the dispatcher function instead.
 
 |           |                                                                                                                                                                           |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runs on   | Amazon Bedrock AgentCore Runtime (`phish_dispatcher`), as an MCP server, from the same container image as the specialists (`AGENT=dispatcher`)                            |
+| Runs on   | AWS Lambda, as the Lambda target `dispatch` on AgentCore Gateway `<appName>-specialists` (`phish-specialists` by default). The Gateway turns the target's tool schema into the MCP tool `dispatch___analyze_all`. Timeout 90 s; logs in `/<appName>/dev/lambda/Dispatcher` (the environment name replaces `dev`). Packaged with the `phish-backend` dependencies only, no container image. Stack output `DispatcherFunctionArn` |
 | Model     | None. It only invokes the three specialist Runtimes; it never calls Bedrock                                                                                               |
-| Called by | By default the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatcher___analyze_all`. Direct path with `-c directSpecialists=false`: the worker, directly with `InvokeAgentRuntime`. Not called on the direct path otherwise |
+| Called by | By default the orchestrator, once per scan in the first round, through AgentCore Gateway `phish-specialists` as `dispatch___analyze_all`. Direct path with `-c directSpecialists=false`: the worker, directly with `lambda:InvokeFunction` on the ARN in its `DISPATCHER_FUNCTION_ARN` variable. Not called on the direct path otherwise |
 | Tools     | Exposes `analyze_all(url, scan_id)`. It calls the `url_analyst`, `brand_visual` and `code_analyst` Runtimes concurrently with `InvokeAgentRuntime` (their `analyze` tool) |
 | Prompt    | None                                                                                                                                                                      |
-| Code      | [`agents/phish_agents/dispatcher/server.py`](../../agents/phish_agents/dispatcher/server.py)                                                                              |
+| Code      | [`agents/phish_agents/dispatcher/handler.py`](../../agents/phish_agents/dispatcher/handler.py)                                                                            |
+
+## Where it sits
+
+Gateway `phish-specialists` has four targets: the dispatcher (a Lambda target) and the three specialists (MCP server targets on AgentCore Runtime). The specialists are agents exposed as MCP tools (agents as tools): the orchestrator and the dispatcher call each one as a tool and get a Finding back. They are not Agent2Agent (A2A) agents and never call each other. The dispatcher is the one target that is not an agent: it is plain code that fans out three calls.
 
 ## What it does
 
@@ -19,10 +23,10 @@ The AgentCore Harness runs same-turn Gateway tool calls one after another, so th
 
 On each call it:
 
-1. Validates the `scan_id`, then invokes the three specialist Runtimes at the same time (`asyncio.gather` over a thread pool sized to the three), each with the same `url` and `scan_id`, each with its own timeout.
+1. Validates the `scan_id`, then invokes the three specialist Runtimes at the same time, each with the same `url` and `scan_id`, each with its own timeout.
 2. Returns `{"findings": [...]}` with one Finding each, in `url_analyst`, `brand_visual`, `code_analyst` order. Each Finding is the specialist's own: its status, signals, `latency_ms`, token usage and calls pass through unchanged.
 
-The optional second round does not use the dispatcher: the orchestrator calls one specialist tool (`url-analyst___analyze`, `brand-visual___analyze` or `code-analyst___analyze`) once more on the same Gateway. The specialists still capture pages and look up RDAP through the shared tools server behind the `phish-tools` Gateway.
+The optional second round does not use the dispatcher: the orchestrator calls one specialist tool (`url-analyst___analyze`, `brand-visual___analyze` or `code-analyst___analyze`) once more on the same Gateway. The specialists still capture pages and look up RDAP through the shared tools MCP server behind the `phish-tools` Gateway.
 
 ## It never raises
 
@@ -34,13 +38,14 @@ A specialist that errors, times out or is throttled comes back as an error Findi
 | ----------------------------------------- | ---------------------------------------------------------------------------- |
 | Specialist deadline (inside each Runtime) | 30 s for url_analyst, 42 s for the two page specialists, brand_visual and code_analyst (a browser capture plus their longest model turn); the specialist answers with its own error Finding at that point |
 | Read timeout per specialist invoke        | 52 s, one attempt only (a retry would start a second, billed specialist run) |
-| Backstop per specialist                   | 57 s (`asyncio.wait_for`), so a hung socket cannot hold the Gateway call     |
+| Backstop per specialist                   | 57 s, so a hung socket cannot hold the Gateway call                          |
+| Lambda function timeout                   | 90 s, above the backstop, so the function returns three Findings before Lambda stops it |
 
-These are the defaults (`latencyBudgets` on). With `-c latencyBudgets=false` the page specialists' deadline is 35 s (code_analyst runs reached 29.4 s, and brand_visual's model ran out of time on 5 of 317 scans at 30 s), the read timeout 45 s and the backstop 50 s. url_analyst keeps 30 s either way (`common/server.py`, `dispatcher/server.py`).
+These are the defaults (`latencyBudgets` on). With `-c latencyBudgets=false` the page specialists' deadline is 35 s (code_analyst runs reached 29.4 s, and brand_visual's model ran out of time on 5 of 317 scans at 30 s), the read timeout 45 s and the backstop 50 s. url_analyst keeps 30 s either way.
 
 ## Permissions
 
-Its role may call `InvokeAgentRuntime` on the three specialist Runtimes and their endpoints only (not the tools Runtime, not itself), `s3:PutObject` on the three `scans/*/findings/<agent>.json` keys only, and `kms:GenerateDataKey` and `kms:Encrypt` on the data key. It has no Bedrock, browser, Gateway or cache grant. The `phish-specialists` Gateway role may invoke the dispatcher and the three specialist Runtimes.
+Its execution role may call `InvokeAgentRuntime` on the three specialist Runtimes and their endpoints only (not the tools MCP server), `s3:PutObject` on the three `scans/*/findings/<agent>.json` keys only, and `kms:GenerateDataKey` and `kms:Encrypt` on the data key. It has no Bedrock, browser, Gateway or cache grant. The `phish-specialists` Gateway role may invoke the dispatcher function (`lambda:InvokeFunction` on that one function) and the three specialist Runtimes; nothing else may invoke the function except the worker with `-c directSpecialists=false`.
 
 ## How it is timed
 

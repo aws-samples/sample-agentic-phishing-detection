@@ -34,7 +34,7 @@ ANALYZE_DEADLINE_S = 30
 # The two page specialists run a browser capture and then their longest model turn:
 # code_analyst's successful runs reached 29.4 s (about 1.5% hit 30 s, week of 2026-10-19) and
 # brand_visual's model ran out of time on 5 of 317 scans of a 25-in-flight batch (2026-10-26),
-# each costing a second round. 35 s keeps the dispatcher's 45 s read timeout 10 s clear.
+# each costing a second round. 35 s keeps the dispatcher Lambda's 45 s read timeout 10 s clear.
 # -c latencyBudgets=true: 42 s, because the capture client then waits up to 30 s
 # (remote_tools.CODE_CAPTURE_TIMEOUT_S, the tools Runtime start lag included) and a model turn
 # follows it; the dispatcher's read timeout moves with it and stays 10 s clear.

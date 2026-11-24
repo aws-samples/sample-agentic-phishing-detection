@@ -7,6 +7,12 @@ rejects that initialize with HTTP 400 ("Missing required '_meta' for protocol ve
 2026-07-28"), so the session never starts and every lookup fails soft (seen in the v2.1
 deploy). This client pins the protocol version the Gateway speaks and only does the three
 JSON-RPC calls a lookup needs, over the same SigV4 httpx.Auth.
+
+Tool allowlist: IAM is per Gateway, not per tool, and Gateway phish-tools also carries the Web
+Search connector where the Region offers it. So each client names the tools it may call
+(`allowed_tools`): tools/call for any other name fails here, before a request is sent, and
+list_tools hides it. The specialists' tools client allows the tools MCP server's own tools;
+only brand_visual's web search client allows the web search tool.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+from collections.abc import Collection
 from datetime import timedelta
 from typing import Any
 
@@ -66,8 +73,11 @@ class GatewayMcpClient:
         auth: httpx.Auth | None = None,
         transport: httpx.BaseTransport | None = None,
         client_info: dict[str, str] | None = None,
+        allowed_tools: Collection[str] | None = None,
     ) -> None:
         self.url = url
+        # None allows every tool (tests and local use); the stack's clients always pass a set.
+        self.allowed_tools = frozenset(allowed_tools) if allowed_tools is not None else None
         self._client_info = client_info or CLIENT_INFO
         self._client = httpx.Client(
             auth=auth or SigV4HttpxAuth(region), timeout=timeout_s, transport=transport
@@ -112,6 +122,15 @@ class GatewayMcpClient:
     def stop(self, exc_type: Any = None, exc_val: Any = None, exc_tb: Any = None) -> None:
         self._client.close()
 
+    def _allowed(self, name: str) -> bool:
+        return self.allowed_tools is None or name in self.allowed_tools
+
+    def list_tools(self) -> list[dict]:
+        """The Gateway's tools/list, limited to this client's allowlist (first page only: the
+        Gateways here carry a handful of tools)."""
+        tools = self._call("tools/list", {}).get("tools") or []
+        return [t for t in tools if isinstance(t, dict) and self._allowed(str(t.get("name")))]
+
     def call_tool(
         self,
         tool_use_id: str,
@@ -119,6 +138,8 @@ class GatewayMcpClient:
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
     ) -> dict:
+        if not self._allowed(name):
+            raise GatewayMcpError(f"tool {name[:80]!r} is not allowed for this client")
         timeout_s = read_timeout_seconds.total_seconds() if read_timeout_seconds else None
         result = self._call("tools/call", {"name": name, "arguments": arguments or {}}, timeout_s)
         is_error = bool(result.get("isError"))

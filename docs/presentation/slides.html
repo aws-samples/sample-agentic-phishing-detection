@@ -434,7 +434,7 @@
     <!-- 1 Title -->
     <section
       class="slide"
-      data-notes="This is an AWS sample you can deploy in your own account. Paste a link and get an explained phishing verdict in about a minute: 59 s was the median from worker start to verdict across 600 test URLs on 2026-11-16, queue wait not counted (README.md). A pre-check ends dead links first; then an orchestrator agent calls three specialist agents, which look at the link, the page and the page's code at the same time, and weighs their evidence."
+      data-notes="This is an AWS sample you can deploy in your own account. Paste a link and get an explained phishing verdict in about a minute: 60 s was the median from worker start to verdict across 600 test URLs on 2026-11-24, queue wait not counted (README.md). A pre-check ends dead links first; then an orchestrator agent calls three specialist agents, which look at the link, the page and the page's code at the same time, and weighs their evidence."
     >
       <div class="title-wrap">
         <div class="eyebrow">AWS sample · Amazon Bedrock AgentCore</div>
@@ -579,7 +579,7 @@
     <!-- 4 Architecture -->
     <section
       class="slide"
-      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda first pre-checks the URL on the tools server: a 404 or a dead site ends the scan there, before any model runs. Then the worker invokes the orchestrator, Claude Opus 5.5 on AgentCore Harness. Its one tool is AgentCore Gateway phish-specialists, which routes to the dispatcher, which runs the three specialists at the same time. The specialists call every tool through a second Gateway, phish-tools, on the tools server, which drives AgentCore Browser and the domain registration lookup. The orchestrator returns the verdict, then writes the report on the same session, and the output guardrail screens it. A direct path without the Harness is opt-in."
+      data-notes="The default path. Web users come through CloudFront and AWS WAF to a web tier that signs them in with Cognito and signs API calls with SigV4; API clients call API Gateway directly with SigV4. The API checks the URL with a guardrail, stores it in DynamoDB and queues it on SQS. The worker Lambda first pre-checks the URL directly on the tools MCP server: a 404 or a dead site ends the scan there, before any model runs. Then the worker invokes the orchestrator, Claude Opus 5.5 on AgentCore Harness. Its one tool is AgentCore Gateway phish-specialists, which routes to the dispatcher, a Lambda target that runs only when called, which runs the three specialists at the same time. The specialists are agents exposed as MCP tools on that Gateway, not A2A agents. They call every tool through a second Gateway, phish-tools, on the tools MCP server, which loads the page in AgentCore Browser and runs the domain registration lookup itself; brand_visual's web search is the other target on that Gateway. The orchestrator returns the verdict, then writes the report on the same session, and the output guardrail screens it. A direct path without the Harness is opt-in."
     >
       <div class="eyebrow">Architecture · default path</div>
       <h2>The page only ever opens in AgentCore Browser</h2>
@@ -678,10 +678,10 @@
       </div>
       <div class="badge" style="left: 1302px; top: 316px">3</div>
       <div class="badge" style="left: 1302px; top: 384px">4</div>
-      <div class="badge" style="left: 1784px; top: 474px; width: 62px; border-radius: 19px">5·6</div>
-      <div class="badge" style="left: 1784px; top: 604px">7</div>
-      <div class="badge" style="left: 1784px; top: 734px; width: 62px; border-radius: 19px">8·9</div>
-      <div class="badge" style="left: 1784px; top: 804px">10</div>
+      <div class="badge" style="left: 1784px; top: 474px">5</div>
+      <div class="badge" style="left: 1784px; top: 604px">6</div>
+      <div class="badge" style="left: 1784px; top: 734px">7</div>
+      <div class="badge" style="left: 1784px; top: 804px">8</div>
       <div
         class="grp"
         style="left: 1380px; top: 298px; width: 400px; height: 570px"
@@ -704,7 +704,7 @@
         class="n"
         style="left: 1396px; top: 468px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Gateway → dispatcher</div>
+        <div class="t" style="font-size: 21px">Gateway → dispatcher <span class="muted" style="font-weight: 400">· Lambda</span></div>
       </div>
       <div
         class="n spec"
@@ -728,7 +728,7 @@
         class="n"
         style="left: 1396px; top: 728px; width: 374px; height: 50px; padding: 8px 16px;"
       >
-        <div class="t" style="font-size: 21px">Gateway → tools server</div>
+        <div class="t" style="font-size: 21px">Gateway → tools MCP server</div>
       </div>
       <div
         class="n spec"
@@ -750,7 +750,7 @@
     <!-- 5 Scan flow -->
     <section
       class="slide"
-      data-notes="One scan, step by step. The pre-check runs first, so a 404 or a dead site ends the scan before any model is called or billed. Then the orchestrator on AgentCore Harness calls the dispatcher through AgentCore Gateway, and the dispatcher starts the three specialists at the same time, so round one waits for about the slowest specialist rather than the sum. Every tool call goes through a second Gateway to the tools server. The verdict is stored and shown first; the report follows on the same session and is screened by the output guardrail."
+      data-notes="One scan, step by step. The pre-check runs first, so a 404 or a dead site ends the scan before any model is called or billed. Then the orchestrator on AgentCore Harness calls the dispatcher, a Lambda target on AgentCore Gateway, and the dispatcher starts the three specialists, agents exposed as MCP tools, at the same time, so round one waits for about the slowest specialist rather than the sum. Every tool call, web search included, goes through a second Gateway to the tools MCP server. The verdict is stored and shown first; the report follows on the same session and is screened by the output guardrail."
     >
       <div class="eyebrow">How a single scan flows</div>
       <h2>Six steps from paste to verdict</h2>
@@ -783,8 +783,8 @@
           <div class="sn">4</div>
           <div class="h">Orchestrator</div>
           <div class="b">
-            Opus 5.5 on AgentCore Harness calls the dispatcher through
-            AgentCore Gateway.
+            Opus 5.5 on AgentCore Harness calls the dispatcher Lambda
+            through AgentCore Gateway.
           </div>
         </div>
         <div class="card step par">
@@ -1042,30 +1042,30 @@ jq <span class="s">'{status, verdict: .verdict.verdict, risk: .verdict.risk_scor
     </section>
 
     <!-- 10 Results -->
-<section class="slide" data-notes="Measured on 2026-11-16 on a fresh deploy of this version in us-west-2 with the default configuration: 600 URLs through the API, 300 from the OpenPhish public feed the same day and 300 domains sampled at random from the Tranco top-1M list. 56 dead URLs were answered by the pre-check and left out, so 544 are scored. Caught means a phishing verdict, or suspicious with risk 50 or more, the verdict a pre-publish gate holds for review. Scan time is worker start to verdict; queue wait is not included. Model cost is Bedrock tokens per scan.">
+<section class="slide" data-notes="Measured on 2026-11-24 on a fresh deploy of this version in us-west-2 with the default configuration: 600 URLs through the API, 300 from the OpenPhish public feed the same day and 300 domains sampled at random from the Tranco top-1M list. 56 dead URLs were answered by the pre-check and left out, so 544 are scored. Caught means a phishing verdict, or suspicious with risk 50 or more, the verdict a pre-publish gate holds for review. Scan time is worker start to verdict; queue wait is not included. Model cost is Bedrock tokens per scan.">
   <div class="eyebrow">Measured results · 600 URLs, default configuration</div>
-  <h2>Catches 96.6% of live phishing in about a minute</h2>
+  <h2>Catches 96.5% of live phishing in about a minute</h2>
   <div class="numgrid">
-    <div class="card num"><div class="lbl">Phishing caught (recall)</div><div class="big green" style="margin-top:30px">96.6%</div><div class="vs"><b>282 of 292</b> live phishing URLs</div></div>
-    <div class="card num"><div class="lbl">Legitimate sites flagged</div><div class="big blue" style="margin-top:30px">5.6%</div><div class="vs"><b>14 of 252</b> · none judged phishing</div></div>
-    <div class="card num"><div class="lbl">Scan time, median</div><div class="big blue" style="margin-top:30px">59 s</div><div class="vs">p90 <b>77 s</b> · p99 <b>95 s</b></div></div>
+    <div class="card num"><div class="lbl">Phishing caught (recall)</div><div class="big green" style="margin-top:30px">96.5%</div><div class="vs"><b>276 of 286</b> live phishing URLs</div></div>
+    <div class="card num"><div class="lbl">Legitimate sites flagged</div><div class="big blue" style="margin-top:30px">4.7%</div><div class="vs"><b>12 of 258</b> · none judged phishing</div></div>
+    <div class="card num"><div class="lbl">Scan time, median</div><div class="big blue" style="margin-top:30px">60 s</div><div class="vs">p90 <b>78 s</b> · p99 <b>96 s</b></div></div>
   </div>
-  <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Precision 95.3%, F1 0.959. Model cost <b style="color:var(--cloud)">$0.10</b> per scan at the median ($56.41 for all 600 URLs), and the 9% of URLs that were already dead ended at the pre-check with no model cost.</p>
-  <div class="src">2026-11-16, fresh deploy, us-west-2, 600 URLs (300 OpenPhish, 300 random Tranco top-1M domains), 544 live, episodic memory on, 25 in flight. Source: README.md, docs/evaluation.md.</div>
+  <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Precision 95.8%, F1 0.962. Model cost <b style="color:var(--cloud)">$0.10</b> per scan at the median ($53.68 for all 600 URLs), and the 9% of URLs that were already dead ended at the pre-check with no model cost.</p>
+  <div class="src">2026-11-24, fresh deploy, us-west-2, 600 URLs (300 OpenPhish, 300 random Tranco top-1M domains), 544 live, episodic memory on (435 scans recalled earlier runs, which may inflate recall), 25 in flight. Source: README.md, docs/evaluation.md.</div>
   <div class="foot"><span></span><span>10</span></div>
 </section>
 
 <!-- 11 Gate -->
-<section class="slide" data-notes="Where each URL from the same run landed. Most live phishing pages are caught as suspicious rather than phishing because a provider warning, such as Cloudflare's Suspected Phishing page, stood in front of the site; the app then says the page was not observed and holds the verdict at suspicious. A gate that holds warn and block for a person catches them. The legitimate half is a random top-1M sample, which includes gambling doorways, scam portals and hijacked domains, so most of the 14 flagged sites are of that kind. The labelled set is private because live phishing URLs are not committed.">
+<section class="slide" data-notes="Where each URL from the same run landed. Most live phishing pages are caught as suspicious rather than phishing because a provider warning, such as Cloudflare's Suspected Phishing page, stood in front of the site; the app then says the page was not observed and holds the verdict at suspicious. A gate that holds warn and block for a person catches them. The legitimate half is a random top-1M sample, which includes gambling doorways, scam portals and hijacked domains, so most of the 12 flagged sites are of that kind. The labelled set is private because live phishing URLs are not committed.">
   <div class="eyebrow">Measured results · 544 live URLs</div>
   <h2>What a pre-publish gate would hold</h2>
   <div class="numgrid">
-    <div class="card num"><div class="lbl">Live phishing, 292</div><div class="big green" style="margin-top:30px">290</div><div class="vs"><b>124</b> phishing + <b>166</b> suspicious · <b>2</b> legitimate</div></div>
-    <div class="card num"><div class="lbl">Live legitimate, 252</div><div class="big blue" style="margin-top:30px">194</div><div class="vs">legitimate · <b>23</b> unknown (warn) · <b>35</b> suspicious</div></div>
+    <div class="card num"><div class="lbl">Live phishing, 286</div><div class="big green" style="margin-top:30px">278</div><div class="vs"><b>73</b> phishing + <b>205</b> suspicious · <b>7</b> legitimate · <b>1</b> unknown</div></div>
+    <div class="card num"><div class="lbl">Live legitimate, 258</div><div class="big blue" style="margin-top:30px">186</div><div class="vs">legitimate · <b>39</b> unknown (warn) · <b>33</b> suspicious</div></div>
     <div class="card num"><div class="lbl">Dead links</div><div class="big blue" style="margin-top:30px">56</div><div class="vs">Error 404 or Site down, <b>no model cost</b></div></div>
   </div>
   <p style="margin-top:48px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px"><b style="color:var(--cloud)">Caught</b> means a phishing verdict, or suspicious with risk 50 or more. The labelled set is private, so reproduce the method with your own labelled URLs.</p>
-  <div class="src">Same run as the previous slide. 282 of the 290 flagged phishing URLs were at risk 50 or more. Source: README.md, docs/evaluation.md.</div>
+  <div class="src">Same run as the previous slide. 276 of the 278 flagged phishing URLs were at risk 50 or more. Source: README.md, docs/evaluation.md.</div>
   <div class="foot"><span></span><span>11</span></div>
 </section>
 
@@ -1095,16 +1095,16 @@ jq <span class="s">'{status, verdict: .verdict.verdict, risk: .verdict.risk_scor
 </section>
 
 <!-- 14 Cost -->
-<section class="slide" data-notes="A small fixed cost while idle, mostly the AWS WAF web ACL and two KMS keys, plus a per-scan cost that is mostly model tokens. The token mean is measured; the other per-scan services and the idle figure are estimates from measured usage and list prices, and Cost Explorer agreed for the tagged stacks. The Insights page shows your real token spend per URL, batch and model.">
+<section class="slide" data-notes="A small fixed cost while idle, mostly the AWS WAF web ACL and two KMS keys, plus a per-scan cost that is mostly model tokens. The token mean and most other per-scan services are measured usage at list prices; the idle figure is an estimate, and Cost Explorer agreed for the tagged stacks. The Insights page shows your real token spend per URL, batch and model.">
   <div class="eyebrow">Cost</div>
   <h2>Pennies per scan, a small idle floor</h2>
   <div class="numgrid">
     <div class="card num"><div class="lbl">Idle stacks</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$14 to $15</div><div class="vs">per month, estimate · mostly AWS WAF and KMS</div></div>
-    <div class="card num"><div class="lbl">Per scan</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$0.118</div><div class="vs"><b>$0.103</b> tokens, measured + <b>about $0.015</b> other services, estimate</div></div>
-    <div class="card num"><div class="lbl">1,000 scans a month</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$135 to $145</div><div class="vs">computed: measured tokens plus estimates, with storage</div></div>
+    <div class="card num"><div class="lbl">Per scan</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$0.110</div><div class="vs"><b>$0.098</b> tokens + <b>about $0.012</b> other services, measured</div></div>
+    <div class="card num"><div class="lbl">1,000 URLs a month</div><div class="big blue" style="margin-top:30px;font-size:84px;white-space:nowrap">$130 to $140</div><div class="vs">computed: measured tokens plus estimates, with storage</div></div>
   </div>
   <p style="margin-top:40px;margin-bottom:24px;font-size:28px;line-height:1.45;color:var(--muted);max-width:1640px">Every resource is tagged with <span class="mono" style="font-size:26px">Project</span> and <span class="mono" style="font-size:26px">Owner</span>, so spend shows up in Cost Explorer. The Insights page shows token spend per URL, batch and model.</p>
-  <div class="src">Assumptions: us-west-2 application and us-east-1 edge stack, on-demand prices, no free tier; token mean measured 2026-11-16 on 548 model-backed scans. Per-service breakdown: docs/cost.md.</div>
+  <div class="src">Assumptions: us-west-2 application and us-east-1 edge stack, on-demand prices, no free tier; token mean and services measured 2026-11-24 on 548 model-backed scans. Per-service breakdown: docs/cost.md.</div>
   <div class="foot"><span></span><span>14</span></div>
 </section>
 
