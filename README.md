@@ -1,6 +1,6 @@
 # Agentic Phishing URL Detection on Amazon Bedrock AgentCore
 
-**Paste a link and get an explained phishing verdict in about a minute.** Three specialist agents check the link, the page and the page's code at the same time in an isolated cloud browser. An orchestrator agent weighs their evidence, gives you the verdict first and then writes a plain-language report. Everything runs in your own AWS account.
+**Paste a link and get an explained phishing verdict in about a minute.** Three AI agents inspect the link, how the page looks and what its code does, all at once in an isolated cloud browser; a fourth agent weighs their evidence and gives you a verdict with a plain-language report, all inside your own AWS account.
 
 ![License: MIT-0](https://img.shields.io/badge/license-MIT--0-green) ![Python 3.13](https://img.shields.io/badge/python-3.13-blue) ![AWS CDK](https://img.shields.io/badge/IaC-AWS%20CDK%20%28Python%29-orange) ![Amazon Bedrock AgentCore](https://img.shields.io/badge/Amazon%20Bedrock-AgentCore-01A88D) ![Strands Agents](https://img.shields.io/badge/agents-Strands-blueviolet)
 

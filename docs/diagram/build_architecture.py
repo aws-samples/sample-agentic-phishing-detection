@@ -63,12 +63,14 @@ COLOR = {
 # targets inside, and a line that crosses a Gateway box border is a call through that Gateway.
 # The scan row runs left to right in step order: Harness, Gateway phish-specialists (the
 # dispatcher Lambda target and the three specialist agents, exposed as MCP tools), Gateway
-# phish-tools (the tools MCP server and AgentCore Web Search), AgentCore Browser. The worker sits
-# above the tools MCP server, so the pre-check drops straight down; its Harness line runs left in
-# its own lane. Every explanation lives in the numbered steps in docs/architecture.md, so line
-# labels stay at three words or fewer.
+# phish-tools (AgentCore Web Search stacked above the tools MCP server, as the specialists are
+# stacked), AgentCore Browser. The worker sits above that column; the pre-check runs down its
+# right side into the tools MCP server, and its Harness line runs left in its own lane. Every
+# explanation lives in the numbered steps in docs/architecture.md, so line labels stay at three
+# words or fewer.
 X_HARNESS, X_DISP, X_SPEC = 120, 360, 640  # icon centers on the scan row
-X_WS, X_TOOLS, X_BROWSER = 990, 1190, 1440
+X_TOOLS, X_BROWSER = 1190, 1440  # web search sits above the tools MCP server
+X_PRECHECK = X_TOOLS + 105  # the pre-check drop: right of the Gateway label, inside its box
 ROW1 = 80  # request path icon tops
 SPEC_PITCH = 140  # vertical pitch of the three specialists
 ROWM = 530  # the scan row (middle specialist) icon top
@@ -107,7 +109,7 @@ GROUPS = [
 SPEC_BOX = (X_SPEC - 120, ROW_UP - 62, 240, 2 * SPEC_PITCH + ICON + 62 + 40)
 GW_SPEC = (X_DISP - 120, SPEC_BOX[1] - 42, SPEC_BOX[0] + SPEC_BOX[2] + 30 - (X_DISP - 120), 0)
 GW_SPEC = (*GW_SPEC[:3], LANE_ROUND2 + 30 - GW_SPEC[1])
-GW_TOOLS = (X_WS - 90, ROW_UP - 42, X_TOOLS + 100 - (X_WS - 90), ROWM + ICON + 76 - (ROW_UP - 42))
+GW_TOOLS = (X_TOOLS - 130, ROW_UP - 42, 260, ROWM + ICON + 76 - (ROW_UP - 42))
 BOXES = [
     ("gw_spec", "Gateway phish-specialists (MCP)", *GW_SPEC, "#FFFFFF", "left"),
     ("gw_tools", "Gateway phish-tools (MCP)", *GW_TOOLS, "#FFFFFF", "left"),
@@ -138,7 +140,7 @@ NODES = {
     "rt_brand": ("brand_visual", "bedrock_agentcore", "ml", at(X_SPEC), ROW_UP),
     "rt_url": ("url_analyst", "bedrock_agentcore", "ml", at(X_SPEC), ROWM),
     "rt_code": ("code_analyst", "bedrock_agentcore", "ml", at(X_SPEC), ROW_DOWN),
-    "websearch": ("AgentCore\nWeb Search", "bedrock_agentcore", "ml", at(X_WS), ROW_UP),
+    "websearch": ("AgentCore\nWeb Search", "bedrock_agentcore", "ml", at(X_TOOLS), ROW_UP),
     "tools": ("tools MCP server\n(RDAP, no model)", "bedrock_agentcore", "ml", at(X_TOOLS), ROWM),
     "browser": ("AgentCore\nBrowser", "bedrock_agentcore", "ml", at(X_BROWSER), ROWM),
     # Supporting services: no lines; the steps in docs/architecture.md say who uses each.
@@ -186,7 +188,15 @@ EDGES = {
     "cf_api": ("cf", "api", (1, 0.5), (0, 0.5), [], "SigV4"),
     "api_sqs": ("api", "sqs", (1, 0.5), (0, 0.5), [], "2 enqueue"),
     "sqs_worker": ("sqs", "worker", (1, 0.5), (0, 0.5), [], "2 trigger"),
-    "worker_precheck": ("worker", "tools", (0.75, 1), (0.75, 0), [], "3 direct pre-check", -0.15),
+    "worker_precheck": (
+        "worker",
+        "tools",
+        (1, 0.5),
+        (1, 0.25),
+        [(X_PRECHECK, ROW1 + ICON / 2), (X_PRECHECK, ROWM + ICON / 4)],
+        "3 direct pre-check",
+        -0.45,
+    ),
     "worker_harness": (
         "worker",
         "harness",
