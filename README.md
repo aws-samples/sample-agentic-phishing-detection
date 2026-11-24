@@ -24,40 +24,40 @@ The preview above is a silent 25-second excerpt. Watch the [full 4-minute demo w
 ## Measured results
 
 <!-- BENCH:START -->
-Measured on 2026-11-16: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
+Measured on 2026-11-24: 600 URLs scanned through the API on a fresh deploy of this version with the default configuration, in `us-west-2`.
 
 | Phishing caught | Legitimate sites flagged | Scan time, median | Model cost per scan, median |
 | :---: | :---: | :---: | :---: |
-| **96.6%** | **5.6%** | **59 s** | **$0.10** |
-| 282 of 292 live phishing URLs | 14 of 252 live legitimate sites | p90 77 s, p99 95 s | p90 $0.13 |
+| **96.5%** | **4.7%** | **60 s** | **$0.10** |
+| 276 of 286 live phishing URLs | 12 of 258 live legitimate sites | p90 78 s, p99 96 s | p90 $0.12 |
 
 | Accuracy, 544 live URLs | Value |
 | --- | --- |
-| Phishing caught (recall) | **96.6%** (282 of 292) |
-| Phishing flagged at any risk (phishing or suspicious) | 99.3% (290 of 292) |
-| Legitimate sites flagged (false positive rate) | 5.6% (14 of 252) |
-| Precision | 95.3% |
-| Accuracy | 95.6% |
-| F1 | 0.959 |
-| Legitimate sites judged `unknown` (action `warn`) | 23 of 252 |
+| Phishing caught (recall) | **96.5%** (276 of 286) |
+| Phishing flagged at any risk (phishing or suspicious) | 97.2% (278 of 286) |
+| Legitimate sites flagged (false positive rate) | 4.7% (12 of 258) |
+| Precision | 95.8% |
+| Accuracy | 96.0% |
+| F1 | 0.962 |
+| Legitimate sites judged `unknown` (action `warn`) | 39 of 258 |
 
 | Speed and cost | Median | p90 | p99 |
 | --- | --- | --- | --- |
-| Scan time, worker start to verdict | 59 s | 77 s | 95 s |
-| Model cost per scan, 548 model-backed scans | $0.104 | $0.126 | |
-| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (9%), no model cost | | |
-| Throughput at `scanConcurrency` 25 | 550 URLs in 25.5 minutes (about 22 a minute) | | |
-| Total model cost, 600 URLs | $56.41 (mean $0.094 per URL) | | |
+| Scan time, worker start to verdict | 60.2 s | 78.0 s | 95.5 s |
+| Model cost per scan, 548 model-backed scans | $0.0988 (mean $0.0979) | $0.1237 | |
+| Error 404 or Site down, answered by the pre-check | 52 of 600 scans (8.7%), no model cost | | |
+| Throughput at `scanConcurrency` 25 | 550 URLs in about 27 minutes (about 20 a minute) | | |
+| Total model cost, 600 URLs | $53.68 (mean $0.0895 per URL) | | |
 
 <details>
 <summary>How this was measured</summary>
 
-- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (8 phishing, 48 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
+- **URLs.** 300 from the OpenPhish public feed, pulled the same day, and 300 domains sampled at random from the Tranco top-1M list (ranks 1,001 to 1,000,000). 56 no longer served a page (14 phishing, 42 legitimate) and are left out of the accuracy table, so 544 are scored. The labelled set is not published.
 - **Caught** means a `phishing` verdict, or `suspicious` with risk 50 or more (action `warn` or `block`). A pre-publish gate that holds `warn` for a person catches all of them.
 - **Models.** Orchestrator Claude Opus 5.5 (`us.anthropic.claude-opus-5-5`) on AgentCore Harness, specialists Claude Sonnet 5.5 (`global.anthropic.claude-sonnet-5-5`).
 - **Model cost** is the Bedrock token cost of every model call in a scan (specialists, verdict and report), from each scan's `cost_usd`. AgentCore, Lambda and other services are in [Cost](#cost).
-- **Misses.** Most of the 10 missed phishing pages could not be seen (the browser was refused, or the host returned an error page) and scored just under risk 50. The 14 flagged legitimate sites are mostly gambling doorways, scam trading portals and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
-- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack held earlier scans, so about a quarter of the scans recalled a similar past scan. [docs/evaluation.md](docs/evaluation.md) explains how to measure on your own labelled URLs.
+- **Misses.** 3 of the 10 missed phishing URLs look like feed mislabels (preview builds of a real developer docs site), 4 were low-signal pages with no data capture, and 3 could not be seen (a password page, a browser refusal, a host that refused every capture). The 12 flagged legitimate sites are almost all gambling doorways and hijacked domains that a random top-1M sample contains; none got a `phishing` verdict.
+- **Caveats.** One run on one day; a few URLs either way are run-to-run noise. Episodic memory was on, as by default, and the test stack's memory held many earlier runs: 435 of 600 scans recalled records from them, which may inflate recall. The `phishing`-verdict-only rate (25.5%) is lower than on earlier runs and not yet explained, see [docs/evaluation.md](docs/evaluation.md#current-default-2026-11-24), which also explains how to measure on your own labelled URLs.
 
 </details>
 <!-- BENCH:END -->
@@ -169,9 +169,9 @@ A pre-publish gate holds a link for a person to review when the scan `FAILED`, t
 | Item                    | Amount                     | Basis                                                      |
 | ----------------------- | -------------------------- | ---------------------------------------------------------- |
 | Deployed stacks, idle   | About $14 to $15 per month | Estimate, mostly the AWS WAF web ACL; Cost Explorer agreed |
-| Model tokens per scan   | $0.103 mean                | Measured, current default, 548 model-backed scans (2026-11-16) |
-| Other services per scan | About $0.015               | Estimate from usage measured on the earlier default        |
-| 1,000 scans in a month  | About $135 to $145         | The rows above plus stored data and hourly metrics         |
+| Model tokens per scan   | $0.098 mean                | Measured, current default, 548 model-backed scans (2026-11-24) |
+| Other services per scan | About $0.012               | Measured usage, 2026-11-24, at list prices (some small services estimated) |
+| 1,000 URLs in a month   | About $130 to $140         | The rows above plus stored data and hourly metrics         |
 
 Per-service breakdown, monthly examples and assumptions (`us-west-2`, on-demand prices): [docs/cost.md](docs/cost.md). The Insights page shows your real token spend per URL, batch and model; filter Cost Explorer on the `Project` and `Owner` tags for the rest.
 
