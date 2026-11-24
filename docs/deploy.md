@@ -86,22 +86,17 @@ By default the console is served on its `*.cloudfront.net` name, and CloudFront 
 
 ## Upgrading a stack deployed before this release
 
-A stack deployed before the dispatcher became a Lambda function (2026-11-23) needs no manual step: the dispatcher's Gateway target is now named `dispatch` (tool `dispatch___analyze_all`), so the new Lambda target never clashes with the old `dispatcher` target, which CloudFormation removes after the update.
+A stack deployed before the dispatcher became a Lambda function (2026-11-23) upgrades with one `cdk deploy --all`, with the same `-c` flags as your original deploy. No manual step and no deploy order are needed:
 
-One ordering rule remains when the old deploy had the edge web search Gateway (`<appName>-web-search` in `us-east-1`; a stack in `us-west-2`, the default, did). In a Region that offers the Web Search connector, the update moves web search onto `<appName>-tools` and removes that Gateway. `--all` always updates the edge stack first, because the main stack reads the WAF ACL from it, so the edge stack would delete its web search exports while the main stack still imports them. Deploy the main stack on its own first, then everything, with the same `-c` flags as your original deploy:
-
-```bash
-cd infra
-npx aws-cdk@2.1143.0 deploy PhishTriageAgentic   # <Name>TriageAgentic with -c appName=<name>
-npx aws-cdk@2.1143.0 deploy --all
-```
+- The dispatcher's Gateway target is now named `dispatch` (tool `dispatch___analyze_all`), so the new Lambda target never clashes with the old `dispatcher` target, which CloudFormation removes after the update.
+- In a Region that offers the Web Search connector, web search moves onto `<appName>-tools`. `--all` updates the edge stack first (the main stack reads the WAF ACL from it), which removes the edge web search Gateway and its exports; the main stack then stops importing them, which the CDK export reader tolerates. Verified on 2026-11-24 by upgrading a sandbox from the previous release with one `deploy --all`.
 
 The `DispatcherRuntimeArn` stack output is gone and `DispatcherFunctionArn` replaces it; update anything that read it. Anything that matched the tool name `dispatcher___analyze_all` (log searches, dashboards) should match `dispatch___analyze_all`. Stored scan records are unchanged: the dispatcher call was never a `Call` row, so `kind` and `name` values stay the same.
 
-Troubleshooting an upgrade made with an earlier copy of this release:
+Troubleshooting:
 
-- `A target with name 'dispatcher' already exists in this gateway` (HTTP 409): that copy named the Lambda target `dispatcher`. Update to this code and deploy again.
-- `Error importing /cdk/exports/...WebSearchGateway...` from `Custom::CrossRegionExportReader`, with the main stack in `UPDATE_ROLLBACK_FAILED`: `--all` ran before the main stack was deployed on its own, so the edge stack removed its exports while the main stack still imported them. Continue the rollback skipping that reader (`aws cloudformation continue-update-rollback --stack-name <Name>TriageAgentic --resources-to-skip <reader logical id>`), recreate the two missing `/cdk/exports/<Name>TriageAgentic/...WebSearchGateway...` SSM parameters in the main Region with any value so the reader can release them, deploy, then delete those two parameters.
+- `A target with name 'dispatcher' already exists in this gateway` (HTTP 409): the code you deployed named the Lambda target `dispatcher` (an earlier copy of this release). Update to this code and deploy again.
+- Main stack in `UPDATE_ROLLBACK_FAILED` with `Error importing /cdk/exports/...WebSearchGateway...` from `Custom::CrossRegionExportReader`: the main stack update failed for another reason after the edge stack had already removed its web search exports, and the rollback cannot re-import them. Continue the rollback skipping that reader (`aws cloudformation continue-update-rollback --stack-name <Name>TriageAgentic --resources-to-skip <reader logical id>`), fix the first error, and run `deploy --all` again; the forward update only releases those exports, which the reader tolerates when they are gone.
 
 ## Clean up
 
