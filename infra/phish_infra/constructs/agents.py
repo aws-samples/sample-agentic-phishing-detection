@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT-0
 """Orchestrator Harness, the AgentCore Gateway in front of the specialists, and the Runtimes.
 
-The specialists Gateway has a `dispatcher` target (a no-model Lambda function that runs the
+The specialists Gateway has a `dispatch` target (a no-model Lambda function that runs the
 three specialists concurrently, because the Harness runs same-turn Gateway tool calls one after
 another) and one target per specialist Runtime for the optional second round. The tools MCP
 server Runtime (browser, screenshot, RDAP) sits behind a second Gateway, phish-tools, that only
@@ -114,7 +114,7 @@ CAPTURE_RUNTIMES = {"brand_visual": "tools_brand", "code_analyst": "tools_code"}
 TOOLS_DESCRIPTION = "Tools MCP server: AgentCore Browser capture, screenshot and RDAP lookup"
 # What the tools Runtime writes. Specialists write only their own Finding.
 TOOLS_ARTIFACT_KEYS = ("scans/*/screenshot.png", "scans/*/capture.json")
-# The dispatcher: one Gateway tool (dispatcher___analyze_all), a Lambda target, that invokes the
+# The dispatcher: one Gateway tool (dispatch___analyze_all), a Lambda target, that invokes the
 # three specialist Runtimes concurrently. It makes no model call and writes only an error
 # Finding for a specialist that could not run.
 DISPATCHER_HANDLER = "phish_agents.dispatcher.handler.handler"
@@ -122,7 +122,7 @@ DISPATCHER_HANDLER = "phish_agents.dispatcher.handler.handler"
 # -c latencyBudgets, 50 s without) plus the error-Finding writes and a cold start. The Gateway
 # allows a tool call up to 15 minutes (AgentCore quotas, "Timeout for a gateway invocation").
 DISPATCHER_TIMEOUT_S = 90
-DISPATCHER_TARGET_NAME = "dispatcher"
+DISPATCHER_TARGET_NAME = "dispatch"
 DISPATCHER_DESCRIPTION = "Runs the three specialists concurrently and returns their Findings"
 DISPATCHER_TOOLS = (
     {
@@ -693,7 +693,7 @@ class AgentsLayer(Construct):
     def _dispatcher(
         self, cfg: AppConfig, key: kms.IKey, artifacts_bucket: s3.IBucket
     ) -> lambda_.Function:
-        """The no-model Lambda function behind dispatcher___analyze_all.
+        """The no-model Lambda function behind dispatch___analyze_all.
 
         Its role invokes the three specialist Runtimes and their endpoints only (not the tools
         Runtime) and writes only the three Finding keys, for the error Finding of a specialist
@@ -760,7 +760,7 @@ class AgentsLayer(Construct):
     def _dispatcher_target(
         self, cfg: AppConfig, stack: cdk.Stack, gateway: agentcore.Gateway, gateway_role: iam.Role
     ) -> agentcore.CfnGatewayTarget:
-        """The dispatcher Lambda as the `dispatcher` target (tool dispatcher___analyze_all)."""
+        """The dispatcher Lambda as the `dispatch` target (tool dispatch___analyze_all)."""
         # The Gateway role may invoke this one function, by its unqualified ARN (what the
         # target names), and nothing else.
         gateway_role.add_to_principal_policy(
@@ -986,9 +986,9 @@ class AgentsLayer(Construct):
             for name, runtime in self.runtimes.items()
         ]
         # The dispatcher is a Lambda function, which speaks no MCP itself; the MCP server that
-        # serves its tool (dispatcher___analyze_all) is the specialists Gateway, so the record
+        # serves its tool (dispatch___analyze_all) is the specialists Gateway, so the record
         # names that endpoint. The record stays an MCP record, so the orchestrator's lookup
-        # maps com.phishtriage/dispatcher + analyze_all to the Gateway tool as before.
+        # maps com.phishtriage/dispatch + analyze_all to the Gateway tool as before.
         records.append(
             McpRecord(
                 name="Dispatcher",

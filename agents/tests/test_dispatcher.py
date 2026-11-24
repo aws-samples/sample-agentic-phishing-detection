@@ -197,7 +197,7 @@ class GatewayContext:
     """What a Lambda target receives: the tool name in client_context.custom."""
 
     class client_context:  # noqa: N801 - mirrors the Lambda context attribute
-        custom = {"bedrockAgentCoreToolName": "dispatcher___analyze_all"}
+        custom = {"bedrockAgentCoreToolName": "dispatch___analyze_all"}
 
 
 @pytest.mark.parametrize("context", [GatewayContext(), None])

@@ -125,7 +125,7 @@ def test_specialists_gateway_has_the_dispatcher_and_the_three_specialists(t):
         for x in targets_of(t).values()
         if gateway_id(t, "phish-specialists") in json.dumps(x["GatewayIdentifier"])
     )
-    assert on_specialists == sorted(["dispatcher", *SPECIALIST_TARGETS])
+    assert on_specialists == sorted(["dispatch", *SPECIALIST_TARGETS])
     for name in SPECIALIST_TARGETS:
         p = targets_of(t)[name]
         assert "McpServer" in p["TargetConfiguration"]["Mcp"]
@@ -458,7 +458,7 @@ def test_registry_is_off_by_default(app_context, t):
 
 def test_registry_flag_adds_the_catalog_its_target_and_the_lookup_step(reg):
     assert sorted(targets_of(reg)) == sorted(
-        ["dispatcher", "registry", "tools", "web-search", *SPECIALIST_TARGETS]
+        ["dispatch", "registry", "tools", "web-search", *SPECIALIST_TARGETS]
     )
     gateways = sorted(
         g["Properties"]["Name"]
@@ -654,7 +654,7 @@ def test_registry_outside_registry_regions_skips_the_catalog_and_the_step(app_co
     AgentsLayer(stack, "Agents", cfg=cfg, key=data.key, artifacts_bucket=data.artifacts_bucket)
     template = Template.from_stack(stack)
     template.resource_count_is("AWS::AgentRegistry::Registry", 0)
-    assert "tools" in targets_of(template) and "dispatcher" in targets_of(template)
+    assert "tools" in targets_of(template) and "dispatch" in targets_of(template)
     assert "Step 0" not in harness_prompt(template)
 
 
@@ -749,7 +749,7 @@ def test_specialists_gateway_role_invokes_the_three_specialists_and_the_dispatch
 
 def test_dispatcher_is_a_lambda_target_with_the_analyze_all_tool(t):
     fn_id, _ = dispatcher_fn(t)
-    target = targets_of(t)["dispatcher"]
+    target = targets_of(t)["dispatch"]
     assert gateway_id(t, "phish-specialists") in json.dumps(target["GatewayIdentifier"])
     lam = target["TargetConfiguration"]["Mcp"]["Lambda"]
     assert lam["LambdaArn"] == {"Fn::GetAtt": [fn_id, "Arn"]}
@@ -826,7 +826,7 @@ def test_dispatcher_log_group_is_encrypted_with_a_retention(t):
 
 def test_specialist_targets_wait_for_the_gateway_role_policy(t):
     for target in t.find_resources("AWS::BedrockAgentCore::GatewayTarget").values():
-        if target["Properties"]["Name"] in ("dispatcher", *SPECIALIST_TARGETS):
+        if target["Properties"]["Name"] in ("dispatch", *SPECIALIST_TARGETS):
             assert any(
                 d.startswith("AgentsGatewayRoleDefaultPolicy") for d in target["DependsOn"]
             ), target["Properties"]["Name"]

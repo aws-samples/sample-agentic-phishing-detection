@@ -86,35 +86,22 @@ By default the console is served on its `*.cloudfront.net` name, and CloudFront 
 
 ## Upgrading a stack deployed before this release
 
-A fresh deploy needs neither step. A stack deployed before the dispatcher became a Lambda function (2026-11-23) needs one or two steps before `cdk deploy`.
+A stack deployed before the dispatcher became a Lambda function (2026-11-23) needs no manual step: the dispatcher's Gateway target is now named `dispatch` (tool `dispatch___analyze_all`), so the new Lambda target never clashes with the old `dispatcher` target, which CloudFormation removes after the update.
 
-1. **Delete the old `dispatcher` target first.** The old dispatcher was an MCP server target named `dispatcher` on the `<appName>-specialists` Gateway. CloudFormation creates the new Lambda target, also named `dispatcher`, before it deletes the old one, and the Gateway rejects the duplicate name (HTTP 409), so the update fails. Delete the old target by hand, then deploy:
+One ordering rule remains when the old deploy had the edge web search Gateway (`<appName>-web-search` in `us-east-1`; a stack in `us-west-2`, the default, did). In a Region that offers the Web Search connector, the update moves web search onto `<appName>-tools` and removes that Gateway. `--all` always updates the edge stack first, because the main stack reads the WAF ACL from it, so the edge stack would delete its web search exports while the main stack still imports them. Deploy the main stack on its own first, then everything, with the same `-c` flags as your original deploy:
 
-   ```bash
-   # find the Gateway id of <appName>-specialists (phish-specialists for the default appName)
-   aws bedrock-agentcore-control list-gateways --region "$AWS_REGION" \
-     --query "items[?name=='<appName>-specialists'].gatewayId" --output text
-   # find the id of its target named dispatcher
-   aws bedrock-agentcore-control list-gateway-targets --region "$AWS_REGION" \
-     --gateway-identifier <gateway-id> --query "items[?name=='dispatcher'].targetId" --output text
-   # delete that target
-   aws bedrock-agentcore-control delete-gateway-target --region "$AWS_REGION" \
-     --gateway-identifier <gateway-id> --target-id <target-id>
-   ```
+```bash
+cd infra
+npx aws-cdk@2.1143.0 deploy PhishTriageAgentic   # <Name>TriageAgentic with -c appName=<name>
+npx aws-cdk@2.1143.0 deploy --all
+```
 
-   Round one fails until the deploy finishes, so do this when no scans are running.
+The `DispatcherRuntimeArn` stack output is gone and `DispatcherFunctionArn` replaces it; update anything that read it. Anything that matched the tool name `dispatcher___analyze_all` (log searches, dashboards) should match `dispatch___analyze_all`. Stored scan records are unchanged: the dispatcher call was never a `Call` row, so `kind` and `name` values stay the same.
 
-2. **Deploy the main stack on its own first, when the old deploy had the edge web search Gateway** (a stack in `us-west-2`, the default, did; see `<appName>-web-search` in `us-east-1`). In a connector Region the update moves web search onto `<appName>-tools` and removes the edge Gateway. With `--all`, the edge stack would delete its exports while the main stack still imports them, and the deploy fails. Deploy the main stack first, so it stops importing them, then everything:
+Troubleshooting an upgrade made with an earlier copy of this release:
 
-   ```bash
-   cd infra
-   npx aws-cdk@2.1143.0 deploy PhishTriageAgentic   # <Name>TriageAgentic with -c appName=<name>
-   npx aws-cdk@2.1143.0 deploy --all
-   ```
-
-   Pass the same `-c` flags to both commands as to your original deploy.
-
-The `DispatcherRuntimeArn` stack output is gone and `DispatcherFunctionArn` replaces it; update anything that read it.
+- `A target with name 'dispatcher' already exists in this gateway` (HTTP 409): that copy named the Lambda target `dispatcher`. Update to this code and deploy again.
+- `Error importing /cdk/exports/...WebSearchGateway...` from `Custom::CrossRegionExportReader`, with the main stack in `UPDATE_ROLLBACK_FAILED`: `--all` ran before the main stack was deployed on its own, so the edge stack removed its exports while the main stack still imported them. Continue the rollback skipping that reader (`aws cloudformation continue-update-rollback --stack-name <Name>TriageAgentic --resources-to-skip <reader logical id>`), recreate the two missing `/cdk/exports/<Name>TriageAgentic/...WebSearchGateway...` SSM parameters in the main Region with any value so the reader can release them, deploy, then delete those two parameters.
 
 ## Clean up
 

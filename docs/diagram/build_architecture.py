@@ -128,7 +128,11 @@ NODES = {
     "sqs": ("Amazon SQS\nscan queue", "sqs", "integration", at(880), ROW1),
     "worker": ("AWS Lambda\nworker", "lambda", "compute", at(X_TOOLS), ROW1),
     "harness": (
-        "AgentCore Harness\norchestrator (Opus)", "bedrock_agentcore", "ml", at(X_HARNESS), ROWM
+        "AgentCore Harness\norchestrator (Opus)",
+        "bedrock_agentcore",
+        "ml",
+        at(X_HARNESS),
+        ROWM,
     ),
     "dispatcher": ("dispatcher Lambda\n(no model)", "lambda", "compute", at(X_DISP), ROWM),
     "rt_brand": ("brand_visual", "bedrock_agentcore", "ml", at(X_SPEC), ROW_UP),
@@ -193,7 +197,12 @@ EDGES = {
     ),
     "harness_dispatcher": ("harness", "dispatcher", (1, 0.5), (0, 0.5), [], "5 analyze_all"),
     "dispatcher_specs": (
-        "dispatcher", "specialists", (1, 0.5), (0, frac(SPEC_BOX, MID)), [], "6 parallel"
+        "dispatcher",
+        "specialists",
+        (1, 0.5),
+        (0, frac(SPEC_BOX, MID)),
+        [],
+        "6 parallel",
     ),
     "harness_round2": (
         "harness",

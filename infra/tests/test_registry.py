@@ -124,7 +124,7 @@ def test_every_synthesized_record_passes_the_schema(template):
 
 
 def test_the_dispatcher_record_names_the_specialists_gateway(template):
-    # The dispatcher is a Lambda target, so the MCP endpoint serving dispatcher___analyze_all
+    # The dispatcher is a Lambda target, so the MCP endpoint serving dispatch___analyze_all
     # is the specialists Gateway itself.
     [record] = [
         r["Properties"]

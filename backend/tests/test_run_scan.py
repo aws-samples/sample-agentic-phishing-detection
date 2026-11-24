@@ -306,7 +306,7 @@ def test_one_dispatcher_call_times_all_three_specialists_from_its_start():
     )
     dispatch = Call(
         kind=CallKind.SPECIALIST,
-        name=tool_agent("dispatcher___analyze_all"),
+        name=tool_agent("dispatch___analyze_all"),
         started_at=t1,
         duration_ms=21_000,
         status="ok",

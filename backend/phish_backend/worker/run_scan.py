@@ -163,7 +163,7 @@ def _collect_calls(
     """One harness call, any registry lookups, then one specialist call per persisted Finding.
 
     Specialist timing comes from each Finding's latency_ms, never from the stream: round one
-    is one dispatcher___analyze_all call that runs the three specialists concurrently, so the
+    is one dispatch___analyze_all call that runs the three specialists concurrently, so the
     stream has one tool call for all three and its timing is not per specialist. The three
     start at the first tool call that is not a lookup (the dispatcher call).
 

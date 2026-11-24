@@ -137,7 +137,7 @@ def _tool_text(raw: str) -> str:
 
 
 def dispatch(client, dispatcher_arn: str, url: str, scan_id: str) -> int:
-    """Invoke the dispatcher Lambda (the function behind dispatcher___analyze_all) with the
+    """Invoke the dispatcher Lambda (the function behind dispatch___analyze_all) with the
     tool arguments, as the Gateway does; returns how many findings came back.
 
     The Findings themselves are read from S3 afterwards (each specialist persists its own,

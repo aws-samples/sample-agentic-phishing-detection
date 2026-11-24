@@ -271,7 +271,7 @@ def test_direct_prompt_shares_the_judging_rules_with_the_harness_prompt():
     harness = (REPO / "agents/orchestrator/prompt.md").read_text(encoding="utf-8")
     shared = harness[harness.index("## Untrusted content") : harness.index("## Step 4")]
     assert shared in direct.system_prompt()
-    assert "dispatcher___analyze_all" not in direct.system_prompt()
+    assert "dispatch___analyze_all" not in direct.system_prompt()
 
 
 def test_findings_block_is_bounded():

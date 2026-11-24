@@ -1,12 +1,12 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
 """The dispatcher Lambda: the one Gateway tool `analyze_all` (a Lambda target named
-`dispatcher` on Gateway phish-specialists, so dispatcher___analyze_all), which runs the three
+`dispatch` on Gateway phish-specialists, so dispatch___analyze_all), which runs the three
 specialists at the same time and returns their three Findings.
 
 The AgentCore Harness runs same-turn Gateway tool calls one after another, so three specialist
 tools cost the sum of their latencies (spike 2026-10-16). The orchestrator calls
-`dispatcher___analyze_all` once and the wait is the slowest specialist. It returns
+`dispatch___analyze_all` once and the wait is the slowest specialist. It returns
 `{"findings": [Finding, Finding, Finding]}`, each the specialist's own Finding (status,
 signals, latency_ms, usage and calls unchanged). It never raises: a failed or timed-out
 specialist becomes an error Finding, written to S3 only if the specialist has not already
@@ -198,7 +198,7 @@ async def run_analyze_all(url: str, scan_id: str, **kwargs) -> dict:
 
 
 def _tool_name(context) -> str:
-    """The Gateway's tool name (dispatcher___analyze_all); empty on a direct invoke."""
+    """The Gateway's tool name (dispatch___analyze_all); empty on a direct invoke."""
     custom = getattr(getattr(context, "client_context", None), "custom", None)
     return str(custom.get("bedrockAgentCoreToolName", "")) if isinstance(custom, dict) else ""
 
