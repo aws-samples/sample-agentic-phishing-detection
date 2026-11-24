@@ -106,7 +106,7 @@ The trade-off is deliberate: this is sample code that performs per-scan AI analy
 4. **The orchestrator** (Claude Opus 5.5 on AgentCore Harness) starts the analysis.
 5. **Through AgentCore Gateway** `phish-specialists`, its one tool, it calls the **dispatcher**, a Lambda target on that Gateway that runs only when called, which
 6. **runs the three specialists at the same time** on AgentCore Runtime. The specialists are agents exposed as MCP tools on the Gateway (agents as tools), not A2A agents.
-7. **The specialists call their tools through AgentCore Gateway** `phish-tools` on the **tools MCP server**, the only component that opens a browser.
+7. **The specialists call their tools through AgentCore Gateway** `phish-tools` on the **tools MCP server**, the only component that opens a browser. (The Gateways are named `<appName>-specialists` and `<appName>-tools`; `phish` is the default `appName`.)
 8. **It loads the page in AgentCore Browser**, an isolated browser that AWS runs for you, so the page never loads on your machine, and looks up the domain's registration (RDAP). `brand_visual` can also check a brand's official site with AgentCore Web Search, the other target on `phish-tools`.
 
 The orchestrator then judges the three findings and returns the verdict, then writes the report, which an Amazon Bedrock guardrail screens. When the findings conflict, it may ask one specialist a second time.
@@ -126,7 +126,7 @@ The orchestrator then judges the three findings and returns the verdict, then wr
 
 ## Quick start
 
-You need AWS credentials, Node.js 22, Python 3.13 with [uv](https://docs.astral.sh/uv/), Finch or Docker with ARM64 builds, and Amazon Bedrock access to Claude Opus 5.5 and Claude Sonnet 5.5 in your Region. The API example also needs `awscurl` (`uv tool install awscurl==0.45`) and `jq`.
+You need AWS credentials, Node.js 22, Python 3.13 with [uv](https://docs.astral.sh/uv/), Finch or Docker with ARM64 builds, and Amazon Bedrock access to Claude Opus 5.5 and Claude Sonnet 5.5 in your Region. The API example also needs `awscurl` (`uv tool install awscurl==0.45`) and `jq`; they are optional and the preflight script does not check them.
 
 ```bash
 git clone https://github.com/aws-samples/sample-agentic-phishing-detection.git
@@ -136,7 +136,7 @@ export AWS_REGION=<your-region> AWS_PROFILE=<your-profile>   # every command bel
 uv run python scripts/preflight.py --profile "$AWS_PROFILE" --region "$AWS_REGION"   # checks models, AgentCore, bootstrap, tools
 
 npx aws-cdk@2.1143.0 bootstrap aws://<account-id>/$AWS_REGION aws://<account-id>/us-east-1   # once per account; skip if preflight passes it
-cd infra && export CDK_DOCKER=finch   # or docker
+cd infra && export CDK_DOCKER=docker   # or finch
 npx aws-cdk@2.1143.0 deploy --all -c owner=<team or alias>   # 8 to 16 minutes the first time; add --require-approval never in CI
 ```
 

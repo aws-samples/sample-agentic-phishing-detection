@@ -21,15 +21,16 @@ The Python example below does the same with `boto3` and `SigV4Auth`. An unsigned
 
 ## Before you start
 
-- The API base URL. It is the `ApiUrl` stack output:
+- The API base URL. It is the `ApiUrl` stack output of `PhishTriageAgentic`, or `<Name>TriageAgentic` if you deployed with `-c appName=<name>`:
 
   ```bash
-  export API=$(aws cloudformation describe-stacks --stack-name PhishTriageAgentic \
+  export STACK=PhishTriageAgentic   # or <Name>TriageAgentic
+  export API=$(aws cloudformation describe-stacks --stack-name "$STACK" \
     --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
   ```
 
 - An IAM principal allowed `execute-api:Invoke` on the API. The stack creates a managed policy for this: attach the `ApiInvokePolicyArn` output to your role or user. See [security.md](security.md).
-- `awscurl` for the shell examples: `uv tool install awscurl==0.45`.
+- `awscurl` and `jq` for the shell examples (optional, and not checked by `scripts/preflight.py`; any SigV4 client works): `uv tool install awscurl==0.45`.
 
 Every example runs in your own account. Set `AWS_REGION` to the Region you deployed to.
 
@@ -215,7 +216,7 @@ awscurl --service execute-api --region "$AWS_REGION" -X POST "$API/batches" \
 awscurl --service execute-api --region "$AWS_REGION" "$API/batches/b7c0..."
 ```
 
-`GET /batches/{id}` returns the batch record under `batch` (counts, cost, and the upload lifecycle: `awaiting_upload`, `split_at`, `error`), then `invalid_rows`, `error`, `p50_ms`, `p95_ms` with `p50_over_max`, `p95_over_max`, `p50_bound`, `p95_bound`, and one page of the batch's scans under `items` (`?limit=` up to 200; pass the returned `next` as `?next=` for the following page) beside it. The percentiles are exact when that first page holds every timed scan of the batch; otherwise they come from the batch's latency buckets, are bucket upper edges, and carry `*_bound: true`. A batch with an `error` is closed: `completed_at` is set and it will not progress.
+`GET /batches/{id}` returns the batch record under `batch` (`status_counts` and `verdict_counts`, `cost_usd`, and the upload lifecycle: `awaiting_upload`, `split_at`, `error`), then `invalid_rows`, `error`, `p50_ms`, `p95_ms` with `p50_over_max`, `p95_over_max`, `p50_bound`, `p95_bound`, and one page of the batch's scans under `items` (`?limit=` up to 200; pass the returned `next` as `?next=` for the following page) beside it. The percentiles are exact when that first page holds every timed scan of the batch; otherwise they come from the batch's latency buckets, are bucket upper edges, and carry `*_bound: true`. A batch with an `error` is closed: `completed_at` is set and it will not progress.
 
 ## Scan up to 1,000 URLs from a CSV
 
