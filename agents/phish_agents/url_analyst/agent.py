@@ -87,7 +87,7 @@ async def analyze(
     domain = registered_domain(urlparse(url).hostname or "")
     state = {"result": None, "sanitize": False}
     probe_task = asyncio.create_task((probe or http_probe)(url, total_s=REDIRECT_PROBE_S))
-    # With TOOLS_GATEWAY_URL (set by the stack) RDAP runs in the shared tools server, unless
+    # With TOOLS_GATEWAY_URL (set by the stack) RDAP runs in the shared tools MCP server, unless
     # LOCAL_RDAP is set: then this process asks RDAP itself (same SSRF-guarded client and
     # cache), sparing the tools Runtime one session per scan.
     tools_client = None if _local_rdap() else tools_factory()

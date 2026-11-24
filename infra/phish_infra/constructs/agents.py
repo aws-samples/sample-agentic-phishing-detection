@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: MIT-0
 """Orchestrator Harness, the AgentCore Gateway in front of the specialists, and the Runtimes.
 
-The specialists Gateway has a `dispatcher` target (one no-model Runtime that runs the three
-specialists concurrently, because the Harness runs same-turn Gateway tool calls one after
-another) and one target per specialist for the optional second round. A tools Runtime
-(browser, screenshot, RDAP) sits behind a second Gateway that only the specialists can call;
-the worker also calls it directly for the no-model precheck.
+The specialists Gateway has a `dispatcher` target (a no-model Lambda function that runs the
+three specialists concurrently, because the Harness runs same-turn Gateway tool calls one after
+another) and one target per specialist Runtime for the optional second round. The tools MCP
+server Runtime (browser, screenshot, RDAP) sits behind a second Gateway, phish-tools, that only
+the specialists can call (with the Web Search connector as a second target where the Region
+offers it); the worker also calls the tools Runtime directly for the no-model precheck.
 
 With -c agentRegistry=true there is also an AWS Agent Registry cataloging the MCP servers. Its
 MCP endpoint is a `registry` target on the specialists Gateway, and the orchestrator prompt
@@ -20,6 +21,7 @@ from aws_cdk import aws_bedrockagentcore as agentcore
 from aws_cdk import aws_ecr_assets as ecr_assets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_kms as kms
+from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_s3 as s3
 from aws_cdk import custom_resources as cr
 from constructs import Construct
@@ -28,7 +30,9 @@ from phish_infra.common import (
     REPO_ROOT,
     agentcore_principal,
     bedrock_invoke_statements,
+    build_python_asset,
     depend_on_role_policy,
+    python_function,
     stack_output,
 )
 from phish_infra.config import AppConfig
@@ -38,7 +42,7 @@ from phish_infra.constructs.registry import SUPPORTED_REGIONS as REGISTRY_REGION
 from phish_infra.constructs.registry import McpRecord, SpecialistRegistry
 from phish_infra.constructs.web_search import (
     WebSearchEndpoint,
-    WebSearchGateway,
+    add_web_search_target,
     web_search_folds,
 )
 
@@ -102,18 +106,22 @@ TOOLS_TARGET_NAME = "tools"
 TOOLS_RUNTIME = "tools_server"
 # -c directTools: the specialists that capture pages call the tools Runtime directly.
 DIRECT_TOOLS_AGENTS = ("brand_visual", "code_analyst")
-# -c splitToolsRuntimes: each capturing specialist gets its own copy of the tools server (same
+# -c splitToolsRuntimes: each capturing specialist gets its own copy of the tools MCP server (same
 # image, AGENT=tools_server), so the worker's precheck and the two captures of a scan draw on
 # three Runtimes' session start capacity instead of one. The source fork measured that past a
 # burst of about 18 to 27 calls a Runtime makes each further call wait 9 to 12 s to start.
 CAPTURE_RUNTIMES = {"brand_visual": "tools_brand", "code_analyst": "tools_code"}
-TOOLS_DESCRIPTION = "Shared tools: AgentCore Browser capture, screenshot and RDAP lookup"
+TOOLS_DESCRIPTION = "Tools MCP server: AgentCore Browser capture, screenshot and RDAP lookup"
 # What the tools Runtime writes. Specialists write only their own Finding.
 TOOLS_ARTIFACT_KEYS = ("scans/*/screenshot.png", "scans/*/capture.json")
-# The dispatcher: one Gateway tool (dispatcher___analyze_all) that invokes the three specialist
-# Runtimes concurrently. It makes no model call and writes only an error Finding for a
-# specialist that could not run.
-DISPATCHER_RUNTIME = "dispatcher"
+# The dispatcher: one Gateway tool (dispatcher___analyze_all), a Lambda target, that invokes the
+# three specialist Runtimes concurrently. It makes no model call and writes only an error
+# Finding for a specialist that could not run.
+DISPATCHER_HANDLER = "phish_agents.dispatcher.handler.handler"
+# Above the dispatcher's own backstop (dispatcher/handler.py DISPATCH_DEADLINE_S, 57 s with
+# -c latencyBudgets, 50 s without) plus the error-Finding writes and a cold start. The Gateway
+# allows a tool call up to 15 minutes (AgentCore quotas, "Timeout for a gateway invocation").
+DISPATCHER_TIMEOUT_S = 90
 DISPATCHER_TARGET_NAME = "dispatcher"
 DISPATCHER_DESCRIPTION = "Runs the three specialists concurrently and returns their Findings"
 DISPATCHER_TOOLS = (
@@ -234,7 +242,8 @@ class AgentsLayer(Construct):
     ) -> None:
         super().__init__(scope, id)
         self.web_search = web_search
-        self.web_search_gateway: WebSearchGateway | None = None
+        # The connector target on the tools Gateway, when this Region offers it.
+        self.web_search_target: agentcore.CfnGatewayTarget | None = None
         self.cache = cache
         stack = cdk.Stack.of(self)
         arn_base = f"arn:{stack.partition}:bedrock-agentcore:{stack.region}"
@@ -270,10 +279,10 @@ class AgentsLayer(Construct):
             self.runtimes[name] = self._specialist(name, cfg, key, artifacts_bucket)
             # Ready before a specialist can take traffic, not just before the harness.
             self.runtimes[name].node.add_dependency(tools_target)
-            if name in WEB_SEARCH_AGENTS and self.web_search_gateway is not None:
-                self.runtimes[name].node.add_dependency(self.web_search_gateway)
+            if name in WEB_SEARCH_AGENTS and self.web_search_target is not None:
+                self.runtimes[name].node.add_dependency(self.web_search_target)
         self.dispatcher = self._dispatcher(cfg, key, artifacts_bucket)
-        runtime_arns = runtime_and_endpoint_arns([*self.runtimes.values(), self.dispatcher])
+        runtime_arns = runtime_and_endpoint_arns(list(self.runtimes.values()))
 
         # ── Gateway ────────────────────────────────────────────────────────────
         gateway_role = iam.Role(
@@ -301,7 +310,7 @@ class AgentsLayer(Construct):
         )
         gateway.apply_removal_policy(cfg.removal_policy)
         self.gateway_arn = gateway.gateway_arn
-        targets: list[agentcore.GatewayTarget] = []
+        targets: list[Construct] = [self._dispatcher_target(cfg, stack, gateway, gateway_role)]
 
         gateway_role.add_to_principal_policy(
             iam.PolicyStatement(
@@ -309,16 +318,14 @@ class AgentsLayer(Construct):
                 resources=runtime_arns,
             )
         )
-        # The dispatcher serves round one; the per-specialist targets serve only the optional
-        # second round (one specialist, once).
-        mcp_targets = [
-            ("DispatcherTarget", DISPATCHER_TARGET_NAME, DISPATCHER_DESCRIPTION, self.dispatcher),
-            *(
-                (f"{pascal(name)}Target", TARGET_NAMES[name], DESCRIPTIONS[name], runtime)
-                for name, runtime in self.runtimes.items()
-            ),
-        ]
-        for construct_id, target_name, description, runtime in mcp_targets:
+        # The dispatcher (above) serves round one; the per-specialist targets serve only the
+        # optional second round (one specialist, once).
+        for name, runtime in self.runtimes.items():
+            construct_id, target_name, description = (
+                f"{pascal(name)}Target",
+                TARGET_NAMES[name],
+                DESCRIPTIONS[name],
+            )
             targets.append(
                 gateway.add_mcp_server_target(
                     construct_id,
@@ -348,7 +355,7 @@ class AgentsLayer(Construct):
             )
 
         for target in targets:
-            target.apply_removal_policy(cfg.removal_policy)
+            target.apply_removal_policy(cfg.removal_policy)  # type: ignore[attr-defined]
             depend_on_role_policy(target, gateway_role)
 
         # ── Orchestrator Harness ──────────────────────────────────────────────
@@ -412,8 +419,9 @@ class AgentsLayer(Construct):
 
         stack_output(self, "OrchestratorHarnessArn", self.harness_arn, "Orchestrator Harness ARN")
         stack_output(self, "GatewayArn", self.gateway_arn, "Specialists Gateway ARN")
-        dispatcher_arn = self.dispatcher.agent_runtime_arn
-        stack_output(self, "DispatcherRuntimeArn", dispatcher_arn, "Dispatcher Runtime ARN")
+        stack_output(
+            self, "DispatcherFunctionArn", self.dispatcher.function_arn, "Dispatcher Lambda ARN"
+        )
         for name, runtime in self.runtimes.items():
             stack_output(
                 self, f"{pascal(name)}RuntimeArn", runtime.agent_runtime_arn, f"{name} Runtime ARN"
@@ -550,7 +558,7 @@ class AgentsLayer(Construct):
             f"{pascal(name)}Image",
             directory=str(IMAGE_CONTEXT),
             file=IMAGE_DOCKERFILE,
-            # A tools Runtime copy builds the same image as the tools server (one ECR asset).
+            # A tools Runtime copy builds the same image as the tools MCP server (one ECR asset).
             build_args={"AGENT": agent or name},
             # AgentCore Runtime only runs ARM64 images; amd64 never reaches READY.
             platform=ecr_assets.Platform.LINUX_ARM64,
@@ -660,8 +668,8 @@ class AgentsLayer(Construct):
             )
         gateways = [self.tools_gateway.gateway_arn]
         if name in WEB_SEARCH_AGENTS and self.web_search is not None:
-            # SigV4 to the Web Search Gateway: the edge stack's (us-east-1) or, when the
-            # Region offers the connector, this stack's own.
+            # SigV4 to the Gateway with the web search target: the tools Gateway when the Region
+            # offers the connector (deduplicated below), else the edge stack's (us-east-1).
             gateways.append(self.web_search.gateway_arn)
         role.add_to_principal_policy(
             iam.PolicyStatement(
@@ -684,35 +692,55 @@ class AgentsLayer(Construct):
 
     def _dispatcher(
         self, cfg: AppConfig, key: kms.IKey, artifacts_bucket: s3.IBucket
-    ) -> agentcore.Runtime:
-        """The no-model Runtime behind dispatcher___analyze_all.
+    ) -> lambda_.Function:
+        """The no-model Lambda function behind dispatcher___analyze_all.
 
-        Its role invokes the three specialist Runtimes only (not the tools Runtime, not
-        itself) and writes only the three Finding keys, for the error Finding of a specialist
+        Its role invokes the three specialist Runtimes and their endpoints only (not the tools
+        Runtime) and writes only the three Finding keys, for the error Finding of a specialist
         that could not run. No Bedrock, browser, Gateway or cache grant.
         """
-        runtime = self._runtime(
-            DISPATCHER_RUNTIME,
-            DISPATCHER_DESCRIPTION,
-            {
+        code = lambda_.Code.from_asset(
+            build_python_asset(
+                "lambda-dispatcher",
+                # phish-backend's pins are exactly what the handler imports from outside the
+                # workspace (boto3 with the bedrock-agentcore client, pydantic); phish-agents
+                # would also pull Strands, MCP and Playwright, which the handler never loads.
+                package="phish-backend",
+                sources={
+                    "phish_agents": REPO_ROOT / "agents" / "phish_agents",
+                    "phish_contracts": REPO_ROOT / "contracts" / "phish_contracts",
+                },
+                platform="aarch64-manylinux2014",
+                skip=cfg.skip_asset_build,
+            )
+        )
+        function = python_function(
+            self,
+            "Dispatcher",
+            cfg=cfg,
+            key=key,
+            code=code,
+            handler=DISPATCHER_HANDLER,
+            description=DISPATCHER_DESCRIPTION,
+            environment={
                 "ARTIFACTS_BUCKET": artifacts_bucket.bucket_name,
-                "LOG_LEVEL": "INFO",
+                # The dispatcher's read timeout follows the specialists' page deadline.
+                **({"LATENCY_BUDGETS": "1"} if cfg.latency_budgets else {}),
                 **{
                     f"{name.upper()}_RUNTIME_ARN": runtime.agent_runtime_arn
                     for name, runtime in self.runtimes.items()
                 },
             },
-            cfg,
-            key,
+            timeout=cdk.Duration.seconds(DISPATCHER_TIMEOUT_S),
+            memory_mb=512,
         )
-        role = runtime.role
-        role.add_to_principal_policy(
+        function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["bedrock-agentcore:InvokeAgentRuntime"],
                 resources=runtime_and_endpoint_arns(list(self.runtimes.values())),
             )
         )
-        role.add_to_principal_policy(
+        function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["s3:PutObject"],
                 resources=[
@@ -722,12 +750,82 @@ class AgentsLayer(Construct):
                 ],
             )
         )
-        role.add_to_principal_policy(
+        function.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["kms:GenerateDataKey", "kms:Encrypt"], resources=[key.key_arn]
             )
         )
-        return runtime
+        return function
+
+    def _dispatcher_target(
+        self, cfg: AppConfig, stack: cdk.Stack, gateway: agentcore.Gateway, gateway_role: iam.Role
+    ) -> agentcore.CfnGatewayTarget:
+        """The dispatcher Lambda as the `dispatcher` target (tool dispatcher___analyze_all)."""
+        # The Gateway role may invoke this one function, by its unqualified ARN (what the
+        # target names), and nothing else.
+        gateway_role.add_to_principal_policy(
+            iam.PolicyStatement(
+                actions=["lambda:InvokeFunction"], resources=[self.dispatcher.function_arn]
+            )
+        )
+        # The target checks at create time that the Gateway can reach the function (seen with
+        # the earlier fan-out Lambda target): allow this one Gateway, in this account.
+        self.dispatcher.add_permission(
+            "GatewayInvoke",
+            principal=iam.ServicePrincipal("bedrock-agentcore.amazonaws.com"),
+            action="lambda:InvokeFunction",
+            source_account=stack.account,
+            source_arn=gateway.gateway_arn,
+        )
+        T = agentcore.CfnGatewayTarget
+        string = "string"
+        # L1: the L2 add_lambda_target grants lambda:InvokeFunction on the function and on
+        # "<arn>:*" (every version and alias). The Gateway calls the unqualified ARN only, so
+        # the L1 target plus the statement above keep the grant to exactly that ARN.
+        target = T(
+            self,
+            "DispatcherTarget",
+            gateway_identifier=gateway.gateway_id,
+            name=DISPATCHER_TARGET_NAME,
+            description=DISPATCHER_DESCRIPTION,
+            target_configuration=T.TargetConfigurationProperty(
+                mcp=T.McpTargetConfigurationProperty(
+                    lambda_=T.McpLambdaTargetConfigurationProperty(
+                        lambda_arn=self.dispatcher.function_arn,
+                        tool_schema=T.ToolSchemaProperty(
+                            inline_payload=[
+                                T.ToolDefinitionProperty(
+                                    name=tool["name"],
+                                    description=tool["description"],
+                                    input_schema=T.SchemaDefinitionProperty(
+                                        type="object",
+                                        properties={
+                                            field: T.SchemaDefinitionProperty(
+                                                type=string, description=spec["description"]
+                                            )
+                                            for field, spec in tool["inputSchema"][
+                                                "properties"
+                                            ].items()
+                                        },
+                                        required=tool["inputSchema"]["required"],
+                                    ),
+                                )
+                                for tool in DISPATCHER_TOOLS
+                            ]
+                        ),
+                    )
+                )
+            ),
+            credential_provider_configurations=[
+                T.CredentialProviderConfigurationProperty(
+                    credential_provider_type="GATEWAY_IAM_ROLE"
+                )
+            ],
+        )
+        # add_permission returns nothing in Python; its CfnPermission is the function's child.
+        target.node.add_dependency(self.dispatcher.node.find_child("GatewayInvoke"))
+        target.node.add_dependency(self.dispatcher)
+        return target
 
     def _tools_runtime(
         self,
@@ -774,23 +872,26 @@ class AgentsLayer(Construct):
     def _tools_gateway(
         self, cfg: AppConfig, stack: cdk.Stack, tools_runtime: agentcore.Runtime
     ) -> agentcore.GatewayTarget:
-        """One Gateway, one MCP server target, several tools (tools___capture_page, ...).
+        """One Gateway: the tools MCP server target (tools___capture_page, ...) and, where the
+        Region offers it, the Web Search connector target (web-search___WebSearch).
 
         SigV4 inbound: the three specialist roles hold InvokeGateway on it; the harness role
         does not, so the orchestrator cannot call a browser tool. IAM is per Gateway, not per
-        tool, so any specialist role could call any tool here. The tools server therefore
-        validates every input itself (URL guard, scan id), and brand_visual, code_analyst and
-        url_analyst are not told about each other's tools. Residual risk: a prompt-injected
-        specialist could call a sibling's tool, for example url_analyst calling capture_page;
-        the tool is read-only apart from one S3 object under scans/<scan id>/. A Gateway
-        interceptor Lambda that checks the caller per tool would close it, at the cost of
-        the hop this mode removes.
+        tool, so any specialist role could call any tool here. The tools MCP server therefore
+        validates every input itself (URL guard, scan id), the specialists' Gateway MCP client
+        refuses any tool outside its allowlist (only brand_visual's web search client allows
+        web-search___WebSearch), and brand_visual, code_analyst and url_analyst are not told
+        about each other's tools. Residual risk: code running in a specialist that bypassed its
+        client could call a sibling's tool, for example url_analyst calling capture_page or the
+        web search; the tools are read-only apart from one S3 object under scans/<scan id>/,
+        and a search is billed per query. A Gateway interceptor Lambda that checks the caller
+        per tool would close it, at the cost of one more hop on every tool call.
         """
         role = iam.Role(
             self,
             "ToolsGatewayRole",
             assumed_by=agentcore_principal(stack, f"gateway/{self.tools_gateway_name}"),
-            description="phish tools Gateway: SigV4 caller of the tools server",
+            description="phish tools Gateway: SigV4 caller of the tools MCP server",
         )
         role.add_to_principal_policy(
             iam.PolicyStatement(
@@ -802,7 +903,7 @@ class AgentsLayer(Construct):
             self,
             "ToolsGateway",
             gateway_name=self.tools_gateway_name,
-            description="Shared browser, screenshot and RDAP tools for the specialists",
+            description="Tools MCP server (browser, screenshot, RDAP) for the specialists",
             authorizer_configuration=agentcore.GatewayAuthorizer.using_aws_iam(),
             # The Gateway negotiates only these; see common/gateway_mcp.py for the client pin.
             protocol_configuration=agentcore.McpProtocolConfiguration(
@@ -827,12 +928,19 @@ class AgentsLayer(Construct):
         target.apply_removal_policy(cfg.removal_policy)
         depend_on_role_policy(target, role)
         if web_search_folds(cfg, stack.region):
-            # The Web Search Gateway moves into this stack (no edge stack, no cross-region
-            # reference) but stays a Gateway of its own: IAM is per Gateway, so a target here
-            # would let url_analyst and code_analyst search the web too. Only brand_visual holds
-            # InvokeGateway on it.
-            self.web_search_gateway = WebSearchGateway(self, "WebSearch", cfg=cfg)
-            self.web_search = self.web_search_gateway.endpoint
+            # The Web Search connector is one more target on this Gateway (no Gateway in the
+            # edge stack, no cross-region reference). IAM is per Gateway, so the url_analyst and
+            # code_analyst roles could now reach web-search___WebSearch too; their Gateway MCP
+            # client only calls the tools MCP server's own tools (common/gateway_mcp.py
+            # allowed_tools), and only brand_visual is given the web search URL and tool name.
+            self.web_search_target = add_web_search_target(
+                Construct(self, "ToolsWebSearch"), gateway=gateway, role=role, cfg=cfg
+            )
+            self.web_search = WebSearchEndpoint(
+                gateway_url=gateway.gateway_url or "",
+                gateway_arn=gateway.gateway_arn,
+                region=stack.region,
+            )
         stack_output(self, "ToolsGatewayArn", gateway.gateway_arn, "Tools Gateway ARN")
         stack_output(self, "ToolsGatewayUrl", gateway.gateway_url or "", "Tools Gateway MCP URL")
         stack_output(
@@ -848,7 +956,7 @@ class AgentsLayer(Construct):
         The Gateway role signs for agent-registry and may search this one registry only. A
         record can only name tools; the orchestrator can still call only this Gateway's targets.
         """
-        self._registry_and_outputs(cfg)
+        self._registry_and_outputs(cfg, gateway)
         if self.registry is None:
             raise RuntimeError("agent registry was not created")
         self.registry.grant_discovery(gateway_role)
@@ -866,7 +974,7 @@ class AgentsLayer(Construct):
         target.node.add_dependency(self.registry)
         return target
 
-    def _registry_and_outputs(self, cfg: AppConfig) -> None:
+    def _registry_and_outputs(self, cfg: AppConfig, gateway: agentcore.Gateway) -> None:
         records = [
             McpRecord(
                 name=pascal(name),
@@ -877,12 +985,16 @@ class AgentsLayer(Construct):
             )
             for name, runtime in self.runtimes.items()
         ]
+        # The dispatcher is a Lambda function, which speaks no MCP itself; the MCP server that
+        # serves its tool (dispatcher___analyze_all) is the specialists Gateway, so the record
+        # names that endpoint. The record stays an MCP record, so the orchestrator's lookup
+        # maps com.phishtriage/dispatcher + analyze_all to the Gateway tool as before.
         records.append(
             McpRecord(
                 name="Dispatcher",
                 slug=DISPATCHER_TARGET_NAME,
                 description=DISPATCHER_DESCRIPTION,
-                endpoint=runtime_mcp_endpoint(self, self.dispatcher.agent_runtime_id),
+                endpoint=gateway.gateway_url or "",
                 tools=DISPATCHER_TOOLS,
             )
         )
@@ -950,12 +1062,13 @@ class AgentsLayer(Construct):
         )
 
     def grant_invoke_dispatcher(self, grantee: iam.IGrantable) -> None:
-        """-c directOrchestration: the worker calls the dispatcher Runtime itself. Scoped to the
-        dispatcher and its endpoints; the specialists stay reachable only through it."""
+        """-c directOrchestration: the worker invokes the dispatcher Lambda itself. Scoped to
+        the function's unqualified ARN (not "<arn>:*" as grant_invoke would add); the
+        specialists stay reachable only through it."""
         iam.Grant.add_to_principal(
             grantee=grantee,
-            actions=["bedrock-agentcore:InvokeAgentRuntime"],
-            resource_arns=runtime_and_endpoint_arns([self.dispatcher]),
+            actions=["lambda:InvokeFunction"],
+            resource_arns=[self.dispatcher.function_arn],
         )
 
     def grant_invoke_specialists(self, grantee: iam.IGrantable) -> None:

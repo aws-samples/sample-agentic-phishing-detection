@@ -1,11 +1,12 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""A small AgentCore Gateway whose only target is the managed Web Search connector.
+"""The managed AgentCore Web Search connector as a Gateway target.
 
-brand_visual calls it over MCP with SigV4 to confirm a brand's official website, and is the
-only role granted InvokeGateway on it. In a Region that offers the connector it lives in the
-regional stack; elsewhere in the us-east-1 edge stack, and the regional stack reads its URL and
-ARN through a cross-region reference.
+brand_visual calls it over MCP with SigV4 to confirm a brand's official website. In a Region
+that offers the connector it is one more target (`web-search`) on the regional tools Gateway
+(phish-tools, add_web_search_target). Elsewhere it is the only target of a small Gateway of its
+own (WebSearchGateway) in the us-east-1 edge stack, and the regional stack reads that Gateway's
+URL and ARN through a cross-region reference; only the brand_visual role may invoke it.
 
 Cost: no idle charge. AgentCore Web Search bills $7 per 1,000 queries (AgentCore pricing page,
 checked 2026-09-30); brand_visual makes at most 2 per scan, so at most $0.014 per URL.
@@ -30,8 +31,18 @@ TARGET_NAME = "web-search"
 CONNECTOR_ID = "web-search"
 CONNECTOR_TOOL = "WebSearch"
 TOOL_NAME = f"{TARGET_NAME}___{CONNECTOR_TOOL}"
-# Regions that offered the Web Search connector (AgentCore developer guide, 2026-09-30).
-SUPPORTED_REGIONS = ("us-east-1", "eu-west-1", "ap-northeast-1")
+# Regions that offer the Web Search Tool connector (AgentCore developer guide,
+# gateway-target-connector-web-search-tool.html, checked 2026-11-23; us-west-2 was added after
+# the 2026-09-30 check, which listed us-east-1, eu-west-1 and ap-northeast-1 only).
+SUPPORTED_REGIONS = (
+    "us-east-1",
+    "us-east-2",
+    "us-west-2",
+    "eu-west-1",
+    "ap-southeast-2",
+    "ap-northeast-1",
+    "us-gov-west-1",
+)
 
 
 @dataclass(frozen=True)
@@ -45,10 +56,10 @@ class WebSearchEndpoint:
 
 
 def web_search_folds(cfg: AppConfig, region: str | None) -> bool:
-    """True when the Web Search Gateway can live in the regional stack.
+    """True when the connector is a target on the regional tools Gateway.
 
-    Only in a Region that offers the connector. Everywhere else it stays in the us-east-1 edge
-    stack.
+    Only in a Region that offers the connector. Everywhere else it sits behind its own Gateway
+    in the us-east-1 edge stack.
     """
     return bool(
         cfg.web_search

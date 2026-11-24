@@ -10,9 +10,7 @@ import pytest
 from phish_agents import __main__ as entry
 
 
-@pytest.mark.parametrize(
-    "agent", ["url_analyst", "brand_visual", "code_analyst", "tools_server", "dispatcher"]
-)
+@pytest.mark.parametrize("agent", ["url_analyst", "brand_visual", "code_analyst", "tools_server"])
 def test_runs_the_named_specialist_server(monkeypatch, agent):
     started: list[str] = []
     fake = types.SimpleNamespace(main=lambda: started.append(agent))
@@ -21,7 +19,8 @@ def test_runs_the_named_specialist_server(monkeypatch, agent):
     assert started == [agent]
 
 
-@pytest.mark.parametrize("value", ["", "../x", "url_analyst.server"])
+# The dispatcher is a Lambda function now, not a Runtime the image could start.
+@pytest.mark.parametrize("value", ["", "../x", "url_analyst.server", "dispatcher"])
 def test_rejects_anything_but_a_specialist(value):
     with pytest.raises(SystemExit, match="AGENT must be one of"):
         entry.main({"AGENT": value})

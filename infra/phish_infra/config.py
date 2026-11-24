@@ -12,12 +12,12 @@ from constructs import Node
 
 DEFAULT_OWNER = "phish-triage-owner"
 # -c specialistMode (registry or direct) was replaced by -c agentRegistry. Every deployment
-# now has the dispatcher and the shared tools server; the flag only adds the AWS Agent
+# now has the dispatcher and the shared tools MCP server; the flag only adds the AWS Agent
 # Registry catalog and the orchestrator's lookup step. An old specialistMode fails the synth
 # with this message rather than being mapped silently, because neither old value means what
 # it did: registry was the default and is now opt-in, and direct no longer exists.
 SPECIALIST_MODE_REMOVED = (
-    "specialistMode was removed. The dispatcher and the shared tools server are always "
+    "specialistMode was removed. The dispatcher and the shared tools MCP server are always "
     "deployed; add -c agentRegistry=true for the AWS Agent Registry catalog and lookup "
     "(the old registry mode), or drop the flag (direct mode no longer exists)."
 )

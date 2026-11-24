@@ -53,7 +53,7 @@ async def analyze(
         persist_finding(s3, bucket, scan_id, finding)
         return finding
 
-    # With TOOLS_GATEWAY_URL (set by the stack) the capture runs in the shared tools server
+    # With TOOLS_GATEWAY_URL (set by the stack) the capture runs in the shared tools MCP server
     # behind the Gateway; without it (local runs), in this process.
     tools_client = tools_factory()
     if hasattr(tools_client, "bind_scan"):

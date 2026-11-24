@@ -526,7 +526,7 @@ def _dispatch_safely(client, cfg, url: str, scan_id: str) -> int:
         if cfg.direct_specialists:
             arns = dict(cfg.specialist_runtime_arns)
             return direct.dispatch_specialists(client, arns, url, scan_id)
-        return direct.dispatch(client, cfg.dispatcher_runtime_arn, url, scan_id)
+        return direct.dispatch(client, cfg.dispatcher_function_arn, url, scan_id)
     except Exception as exc:  # noqa: BLE001 - the verdict turn still runs on what exists
         logger.warning("scan %s: dispatch failed (%s)", scan_id, str(exc)[:120])
         return 0
@@ -640,7 +640,9 @@ def _process_direct(
         precheck_started = utcnow()
         precheck_future = pool.submit(_precheck, cfg, record.url, scan_id, tools_client)
         dispatch_started = utcnow()
-        dispatch_client = dispatcher or clients.dispatcher_runtime()
+        dispatch_client = dispatcher or (
+            clients.specialists_runtime() if cfg.direct_specialists else clients.dispatcher_lambda()
+        )
         dispatch_future = pool.submit(_dispatch_safely, dispatch_client, cfg, record.url, scan_id)
         memory_client = (memory or clients.memory()) if cfg.memory_id else None
         past = scan_memory.recall(memory_client, cfg.memory_id, record.url)

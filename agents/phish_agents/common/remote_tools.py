@@ -6,7 +6,7 @@ AgentCore Gateway, from a specialist that no longer runs those tools in process.
 The stack sets TOOLS_GATEWAY_URL on every specialist. Without it (local runs and tests) the
 specialists keep their in-process tools.
 
-The capture classes keep their own logic. The tools server runs them and returns their state as
+The capture classes keep their own logic. The tools MCP server runs them and returns their state as
 a payload (capture_payload); the specialist rebuilds a capture object from it (apply_payload),
 so prompts, retries, signals and Finding assembly behave exactly as they did in process.
 """
@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 # The Gateway names a target's tools {target}___{tool} (the infra target is named "tools").
 DEFAULT_TARGET = "tools"
+# What a specialist may call on the tools Gateway: the tools MCP server's own tools. The same
+# Gateway can also carry web-search___WebSearch, which only brand_visual's web search client
+# allows (brand_visual/web_search.py).
+TOOLS_SERVER_TOOLS = ("capture_page", "capture_page_code", "whois_lookup")
 # A capture is 14 s for brand_visual and 20 s for code_analyst (22 s server backstop);
 # these are the client read timeouts, a little above each. code_analyst's 35 s deadline
 # must still hold a model turn on each side of the call.
@@ -68,6 +72,7 @@ class ToolsClient:
 
     def __init__(self, url: str, region: str, *, target: str = DEFAULT_TARGET, client=None) -> None:
         self.url, self.region, self.target = url, region, target
+        self.allowed_tools = frozenset(f"{target}___{tool}" for tool in TOOLS_SERVER_TOOLS)
         self._client = client
         self._lock = asyncio.Lock()
 
@@ -85,7 +90,11 @@ class ToolsClient:
     def _start(self) -> GatewayMcpClient:
         # mcp 2.2.0 negotiates a protocol the Gateway refuses; GatewayMcpClient pins 2025-06-18.
         client = self._client or GatewayMcpClient(
-            self.url, self.region, timeout_s=CONNECT_TIMEOUT_S, client_info=_CLIENT_INFO
+            self.url,
+            self.region,
+            timeout_s=CONNECT_TIMEOUT_S,
+            client_info=_CLIENT_INFO,
+            allowed_tools=self.allowed_tools,
         )
         client.start()
         return client
@@ -141,7 +150,7 @@ def _jsonrpc_result(raw: str, tool: str) -> dict:
 class RuntimeToolsClient:
     """The tools Runtime called directly with InvokeAgentRuntime, not through its Gateway.
 
-    Same call_json contract as ToolsClient. The tools server is a stateless MCP server
+    Same call_json contract as ToolsClient. The tools MCP server is a stateless MCP server
     (json_response=True), so one tools/call message on a fresh runtime session is a complete
     exchange, as for the worker's precheck_url. Measured 2026-10-31: 0.8-1.7 s per whois_lookup
     this way against 10 s Gateway read timeouts under eval load. One attempt per call (one more
@@ -298,9 +307,9 @@ def _gateway_failure(cap: BrandCapture | CodeCapture, exc: Exception) -> None:
 
 
 class RemoteBrandCapture(BrandCapture):
-    """BrandCapture whose capture runs in the tools server; the model still sees the image.
+    """BrandCapture whose capture runs in the tools MCP server; the model still sees the image.
 
-    The tools server uploads the screenshot to S3 itself. This process reads the same object
+    The tools MCP server uploads the screenshot to S3 itself. This process reads the same object
     back only to hand the model its pixels, so the bytes never travel through the Gateway.
     """
 
@@ -357,7 +366,7 @@ class RemoteCodeCapture(CodeCapture):
 
 
 async def remote_whois(client: ToolsClient, url: str, domain: str) -> dict:
-    """RDAP through the tools server; a Gateway failure reads as a failed lookup."""
+    """RDAP through the tools MCP server; a Gateway failure reads as a failed lookup."""
     try:
         return await client.call_json("whois_lookup", {"url": url}, WHOIS_TIMEOUT_S)
     except ToolsGatewayError as exc:

@@ -16,7 +16,7 @@ RUNTIME_OUTPUTS = (
     "UrlAnalystRuntimeArn",
     "BrandVisualRuntimeArn",
     "CodeAnalystRuntimeArn",
-    "DispatcherRuntimeArn",
+    "DispatcherFunctionArn",
 )
 SPECIALIST_TARGETS = ["brand-visual", "code-analyst", "url-analyst"]
 
@@ -32,7 +32,8 @@ def synth(app_context, test_env, **extra):
 
 @pytest.fixture(scope="module")
 def t(harness_context, test_env):
-    """The Harness layout (latency flags off): dispatcher, tools server, no Agent Registry."""
+    """The Harness layout (latency flags off): dispatcher Lambda, tools MCP server, no Agent
+    Registry."""
     return synth(harness_context, test_env)
 
 
@@ -46,13 +47,13 @@ def policies_with(t, needle):
     return [p for p in t.find_resources("AWS::IAM::Policy").values() if needle in str(p)]
 
 
-def test_five_mcp_runtimes(t):
+def test_four_mcp_runtimes(t):
+    # The dispatcher is a Lambda function, not a Runtime.
     runtimes = t.find_resources("AWS::BedrockAgentCore::Runtime")
     names = sorted(r["Properties"]["AgentRuntimeName"] for r in runtimes.values())
     assert names == [
         "phish_brand_visual",
         "phish_code_analyst",
-        "phish_dispatcher",
         "phish_tools_server",
         "phish_url_analyst",
     ]
@@ -81,7 +82,6 @@ def test_images_are_arm64_builds_of_one_dockerfile(app_context, test_env, regist
     assert sorted(s["dockerBuildArgs"]["AGENT"] for s in sources) == [
         "brand_visual",
         "code_analyst",
-        "dispatcher",
         "tools_server",
         "url_analyst",
     ]
@@ -126,7 +126,7 @@ def test_specialists_gateway_has_the_dispatcher_and_the_three_specialists(t):
         if gateway_id(t, "phish-specialists") in json.dumps(x["GatewayIdentifier"])
     )
     assert on_specialists == sorted(["dispatcher", *SPECIALIST_TARGETS])
-    for name in on_specialists:
+    for name in SPECIALIST_TARGETS:
         p = targets_of(t)[name]
         assert "McpServer" in p["TargetConfiguration"]["Mcp"]
         (provider,) = p["CredentialProviderConfigurations"]
@@ -280,8 +280,6 @@ FINDINGS = {f"scans/*/findings/{n}.json" for n in ("url_analyst", "brand_visual"
         ("brand_visual", {"scans/*/findings/brand_visual.json"}),
         ("code_analyst", {"scans/*/findings/code_analyst.json"}),
         ("tools_server", {"scans/*/screenshot.png", "scans/*/capture.json"}),
-        # Only for the error Finding of a specialist that could not run.
-        ("dispatcher", FINDINGS),
     ],
 )
 def test_each_runtime_writes_only_its_own_keys(t, name, keys):
@@ -294,7 +292,7 @@ def test_runtime_log_groups_are_adopted_not_precreated(t):
     # (second deploy, 2026-09-29). The stack adopts the group instead: create if missing,
     # then set the retention and the CMK, and delete it with the stack in dev.
     runtimes = t.find_resources("AWS::BedrockAgentCore::Runtime")
-    assert len(runtimes) == 5
+    assert len(runtimes) == 4
     for group in t.find_resources("AWS::Logs::LogGroup").values():
         assert "bedrock-agentcore/runtimes" not in json.dumps(group)
     calls = [
@@ -460,7 +458,7 @@ def test_registry_is_off_by_default(app_context, t):
 
 def test_registry_flag_adds_the_catalog_its_target_and_the_lookup_step(reg):
     assert sorted(targets_of(reg)) == sorted(
-        ["dispatcher", "registry", "tools", *SPECIALIST_TARGETS]
+        ["dispatcher", "registry", "tools", "web-search", *SPECIALIST_TARGETS]
     )
     gateways = sorted(
         g["Properties"]["Name"]
@@ -518,18 +516,23 @@ def test_a_prompt_without_the_round_one_heading_is_a_clear_error(monkeypatch, tm
         agents_module.orchestrator_prompt(True)
 
 
-# ── tools server and its Gateway (always deployed) ──────────────────────────────────────
+# ── tools MCP server and its Gateway (always deployed) ──────────────────────────────────
 
 
-def test_tools_gateway_has_one_target_on_the_tools_runtime(t):
+def tools_gateway_targets(template):
+    return {
+        x["Properties"]["Name"]: x["Properties"]
+        for x in template.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
+        if gateway_id(template, "phish-tools") in json.dumps(x["Properties"]["GatewayIdentifier"])
+    }
+
+
+def test_tools_gateway_has_the_tools_runtime_and_the_web_search_connector(t):
     reg = t
-    on_tools = [
-        x["Properties"]
-        for x in reg.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-        if gateway_id(reg, "phish-tools") in json.dumps(x["Properties"]["GatewayIdentifier"])
-    ]
-    assert [t["Name"] for t in on_tools] == ["tools"]
-    (provider,) = on_tools[0]["CredentialProviderConfigurations"]
+    on_tools = tools_gateway_targets(reg)
+    # us-west-2 offers the Web Search connector, so it is the second target here.
+    assert sorted(on_tools) == ["tools", "web-search"]
+    (provider,) = on_tools["tools"]["CredentialProviderConfigurations"]
     assert provider["CredentialProvider"]["IamCredentialProvider"]["Service"] == "bedrock-agentcore"
     assert gateway_props(reg, "phish-tools")["AuthorizerType"] == "AWS_IAM"
     mcp = gateway_props(reg, "phish-tools")["ProtocolConfiguration"]["Mcp"]
@@ -655,49 +658,48 @@ def test_registry_outside_registry_regions_skips_the_catalog_and_the_step(app_co
     assert "Step 0" not in harness_prompt(template)
 
 
-def test_web_search_stays_at_the_edge_in_a_region_without_the_connector(t):
-    reg = t
-    assert all(
-        "WebSearch" not in json.dumps(t)
-        for t in reg.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-    )
-
-
-def test_web_search_gets_a_regional_gateway_of_its_own_where_the_connector_exists(app_context):
+def agents_only(app_context, region):
     app = cdk.App(context=app_context)
-    stack = cdk.Stack(app, "S", env=cdk.Environment(account="123456789012", region="us-east-1"))
+    stack = cdk.Stack(app, "S", env=cdk.Environment(account="123456789012", region=region))
     cfg = load_config(app.node)
     data = DataLayer(stack, "Data", cfg=cfg)
     AgentsLayer(stack, "Agents", cfg=cfg, key=data.key, artifacts_bucket=data.artifacts_bucket)
-    template = Template.from_stack(stack)
-    assert sorted(targets_of(template)) == [
-        "brand-visual",
-        "code-analyst",
-        "dispatcher",
-        "tools",
-        "url-analyst",
-        "web-search",
-    ]
-    env = runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"]
-    assert "WEB_SEARCH_GATEWAY_URL" in env
+    return Template.from_stack(stack)
+
+
+def test_web_search_stays_at_the_edge_in_a_region_without_the_connector(app_context):
+    template = agents_only(app_context, "eu-central-1")
+    assert "web-search" not in targets_of(template)
     assert (
         "WEB_SEARCH_GATEWAY_URL"
-        not in runtime_of(template, "code_analyst")["Properties"]["EnvironmentVariables"]
+        not in (runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"])
     )
-    # IAM is per Gateway: a web-search target on the tools Gateway would serve every specialist.
-    tools_gw, search_gw = (
-        gateway_id(template, "phish-tools"),
-        gateway_id(template, "phish-web-search"),
+
+
+@pytest.mark.parametrize("region", ["us-west-2", "us-east-1"])
+def test_web_search_is_a_tools_gateway_target_where_the_connector_exists(app_context, region):
+    template = agents_only(app_context, region)
+    gateways = sorted(
+        g["Properties"]["Name"]
+        for g in template.find_resources("AWS::BedrockAgentCore::Gateway").values()
     )
-    on_tools = [
-        t["Properties"]["Name"]
-        for t in template.find_resources("AWS::BedrockAgentCore::GatewayTarget").values()
-        if tools_gw in json.dumps(t["Properties"]["GatewayIdentifier"])
-    ]
-    assert on_tools == ["tools"]
-    assert search_gw in json.dumps(role_statements(template, runtime_of(template, "brand_visual")))
+    assert gateways == ["phish-specialists", "phish-tools"]
+    assert sorted(tools_gateway_targets(template)) == ["tools", "web-search"]
+    env = runtime_of(template, "brand_visual")["Properties"]["EnvironmentVariables"]
+    assert env["WEB_SEARCH_GATEWAY_URL"] == env["TOOLS_GATEWAY_URL"]
     for name in ("url_analyst", "code_analyst"):
-        assert search_gw not in json.dumps(role_statements(template, runtime_of(template, name)))
+        assert not any(
+            k.startswith("WEB_SEARCH")
+            for k in runtime_of(template, name)["Properties"]["EnvironmentVariables"]
+        )
+    # brand_visual signs for the tools Gateway only: there is no second Gateway to reach.
+    tools_gw = gateway_id(template, "phish-tools")
+    [invoke] = [
+        st
+        for st in role_statements(template, runtime_of(template, "brand_visual"))
+        if st["Action"] == "bedrock-agentcore:InvokeGateway"
+    ]
+    assert invoke["Resource"] == {"Fn::GetAtt": [tools_gw, "GatewayArn"]}
 
 
 # ── dispatcher ───────────────────────────────────────────────────────────────────────────
@@ -722,35 +724,104 @@ def runtime_logical_id(template, name):
     )
 
 
-def test_specialists_gateway_role_invokes_the_dispatcher_and_the_specialists_only(t):
-    text, count = invoke_resources(t, role_id(t, GATEWAY_ROLE))
-    assert count == 8  # dispatcher and three specialists, and their endpoints
-    for name in ("dispatcher", "url_analyst", "brand_visual", "code_analyst"):
+DISPATCHER_HANDLER = "phish_agents.dispatcher.handler.handler"
+
+
+def dispatcher_fn(template):
+    ((logical_id, fn),) = template.find_resources(
+        "AWS::Lambda::Function", {"Properties": {"Handler": DISPATCHER_HANDLER}}
+    ).items()
+    return logical_id, fn["Properties"]
+
+
+def test_specialists_gateway_role_invokes_the_three_specialists_and_the_dispatcher_only(t):
+    role = role_id(t, GATEWAY_ROLE)
+    text, count = invoke_resources(t, role)
+    assert count == 6  # three specialists and their endpoints
+    for name in ("url_analyst", "brand_visual", "code_analyst"):
         assert runtime_logical_id(t, name) in text, name
     assert runtime_logical_id(t, "tools_server") not in text
+    # Exactly the dispatcher function by its unqualified ARN: no "<arn>:*" version wildcard.
+    fn_id, _ = dispatcher_fn(t)
+    invokes = [s for s in statements_of_role(t, role) if "lambda:InvokeFunction" in actions_of(s)]
+    assert [s["Resource"] for s in invokes] == [{"Fn::GetAtt": [fn_id, "Arn"]}]
+
+
+def test_dispatcher_is_a_lambda_target_with_the_analyze_all_tool(t):
+    fn_id, _ = dispatcher_fn(t)
+    target = targets_of(t)["dispatcher"]
+    assert gateway_id(t, "phish-specialists") in json.dumps(target["GatewayIdentifier"])
+    lam = target["TargetConfiguration"]["Mcp"]["Lambda"]
+    assert lam["LambdaArn"] == {"Fn::GetAtt": [fn_id, "Arn"]}
+    (tool,) = lam["ToolSchema"]["InlinePayload"]
+    assert tool["Name"] == "analyze_all"
+    assert tool["InputSchema"]["Type"] == "object"
+    assert sorted(tool["InputSchema"]["Properties"]) == ["scan_id", "url"]
+    assert tool["InputSchema"]["Required"] == ["url", "scan_id"]
+    assert target["CredentialProviderConfigurations"] == [
+        {"CredentialProviderType": "GATEWAY_IAM_ROLE"}
+    ]
+
+
+def test_only_the_specialists_gateway_may_invoke_the_dispatcher_resource_policy(t):
+    fn_id, _ = dispatcher_fn(t)
+    (permission,) = [
+        p["Properties"]
+        for p in t.find_resources("AWS::Lambda::Permission").values()
+        if p["Properties"]["FunctionName"] == {"Fn::GetAtt": [fn_id, "Arn"]}
+    ]
+    assert permission["Principal"] == "bedrock-agentcore.amazonaws.com"
+    assert permission["SourceArn"] == {
+        "Fn::GetAtt": [gateway_id(t, "phish-specialists"), "GatewayArn"]
+    }
+    assert permission["SourceAccount"] == "123456789012"
 
 
 def test_dispatcher_role_invokes_only_the_three_specialists(t):
-    runtime = runtime_of(t, "dispatcher")
-    role = runtime["Properties"]["RoleArn"]["Fn::GetAtt"][0]
+    _, fn = dispatcher_fn(t)
+    role = fn["Role"]["Fn::GetAtt"][0]
     text, count = invoke_resources(t, role)
     assert count == 6  # three specialist Runtimes and their endpoints
     for name in ("url_analyst", "brand_visual", "code_analyst"):
         assert runtime_logical_id(t, name) in text, name
-    for name in ("dispatcher", "tools_server"):
-        assert runtime_logical_id(t, name) not in text, name
+    assert runtime_logical_id(t, "tools_server") not in text
     actions = {a for s in statements_of_role(t, role) for a in actions_of(s)}
-    # No model, browser, Gateway, cache or registry access: it only fans out.
-    assert not any(a.startswith(("bedrock:", "dynamodb:", "agent-registry:")) for a in actions)
+    # No model, browser, Gateway, cache, registry or Lambda access: it only fans out.
+    assert not any(
+        a.startswith(("bedrock:", "dynamodb:", "agent-registry:", "lambda:")) for a in actions
+    )
     assert not any("Browser" in a or a == "bedrock-agentcore:InvokeGateway" for a in actions)
     assert "s3:GetObject" not in actions
+    puts = [s for s in statements_of_role(t, role) if "s3:PutObject" in actions_of(s)]
+    keys = {res["Fn::Join"][1][-1].lstrip("/") for s in puts for res in s["Resource"]}
+    # Only for the error Finding of a specialist that could not run.
+    assert keys == FINDINGS
+    for s in statements_of_role(t, role):
+        assert s["Resource"] != "*" or s["Action"] in (
+            ["xray:PutTraceSegments", "xray:PutTelemetryRecords"],
+        ), s
 
 
-def test_dispatcher_gets_the_three_specialist_runtime_arns(t):
-    env = runtime_of(t, "dispatcher")["Properties"]["EnvironmentVariables"]
+def test_dispatcher_lambda_settings(t):
+    _, fn = dispatcher_fn(t)
+    env = fn["Environment"]["Variables"]
     for name in ("url_analyst", "brand_visual", "code_analyst"):
         assert runtime_logical_id(t, name) in json.dumps(env[f"{name.upper()}_RUNTIME_ARN"])
-    assert "MODEL_ID" not in env and "BROWSER_ID" not in env
+    assert "MODEL_ID" not in env and "BROWSER_ID" not in env and "ARTIFACTS_BUCKET" in env
+    assert fn["Runtime"] == "python3.13" and fn["Architectures"] == ["arm64"]
+    # Above the dispatcher's 57 s backstop, far below the Gateway's 15 minute tool call limit.
+    assert fn["Timeout"] == agents_module.DISPATCHER_TIMEOUT_S == 90
+    assert "KmsKeyArn" in fn and fn["TracingConfig"] == {"Mode": "Active"}
+    from phish_agents.dispatcher import handler
+
+    assert handler.DISPATCH_DEADLINE_S + 10 < fn["Timeout"]
+
+
+def test_dispatcher_log_group_is_encrypted_with_a_retention(t):
+    _, fn = dispatcher_fn(t)
+    group_ref = fn["LoggingConfig"]["LogGroup"]["Ref"]
+    group = t.find_resources("AWS::Logs::LogGroup")[group_ref]["Properties"]
+    assert group["RetentionInDays"] == 30 and "KmsKeyId" in group
 
 
 def test_specialist_targets_wait_for_the_gateway_role_policy(t):

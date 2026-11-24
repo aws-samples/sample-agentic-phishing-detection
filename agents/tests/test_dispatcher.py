@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: MIT-0
-"""The dispatcher runs the three specialist Runtimes at once and always returns three Findings."""
+"""The dispatcher Lambda runs the three specialist Runtimes at once and always returns three
+Findings."""
 
 import io
 import json
@@ -10,7 +11,7 @@ import time
 import pytest
 from agent_fakes import FakeS3
 
-from phish_agents.dispatcher import server as dispatcher
+from phish_agents.dispatcher import handler as dispatcher
 from phish_contracts.models import SPECIALISTS, Finding
 
 SCAN = "scan-12345678"
@@ -73,7 +74,7 @@ async def run(call_fn, s3=None, **kwargs):
         call_fn=call_fn,
         **kwargs,
     )
-    return json.loads(out), s3
+    return json.loads(json.dumps(out)), s3
 
 
 async def test_all_ok_runs_concurrently_in_stable_order():
@@ -130,10 +131,8 @@ async def test_all_fail_still_three_findings():
 
 async def test_bad_scan_id_returns_three_error_findings_without_calls():
     call = Recorder()
-    out = json.loads(
-        await dispatcher.run_analyze_all(
-            "https://a.com", "../x", client_factory=lambda: object(), call_fn=call
-        )
+    out = await dispatcher.run_analyze_all(
+        "https://a.com", "../x", client_factory=lambda: object(), call_fn=call
     )
     assert [f["status"] for f in out["findings"]] == ["error"] * 3
     assert call.starts == {}
@@ -150,7 +149,7 @@ async def test_client_creation_failure_never_raises():
     def boom():
         raise KeyError("AWS_REGION")
 
-    out = json.loads(await dispatcher.run_analyze_all("https://a.com", SCAN, client_factory=boom))
+    out = await dispatcher.run_analyze_all("https://a.com", SCAN, client_factory=boom)
     assert [f["status"] for f in out["findings"]] == ["error"] * 3
 
 
@@ -158,14 +157,12 @@ async def test_s3_failure_does_not_replace_the_error_finding():
     def no_s3():
         raise RuntimeError("no s3")
 
-    out = json.loads(
-        await dispatcher.run_analyze_all(
-            "https://a.com",
-            SCAN,
-            client_factory=lambda: object(),
-            s3_factory=no_s3,
-            call_fn=Recorder({"url_analyst": "raise"}),
-        )
+    out = await dispatcher.run_analyze_all(
+        "https://a.com",
+        SCAN,
+        client_factory=lambda: object(),
+        s3_factory=no_s3,
+        call_fn=Recorder({"url_analyst": "raise"}),
     )
     assert out["findings"][0]["status"] == "error"
 
@@ -196,14 +193,52 @@ def test_calls_the_specialist_analyze_tool_with_one_tools_call_request(monkeypat
     }
 
 
-def test_server_exposes_analyze_all_with_url_and_scan_id():
-    import asyncio
+class GatewayContext:
+    """What a Lambda target receives: the tool name in client_context.custom."""
 
-    mcp = dispatcher.build_server()
-    tools = asyncio.run(mcp.list_tools())
-    (tool,) = tools
-    assert tool.name == "analyze_all"
-    assert set(tool.input_schema["properties"]) == {"url", "scan_id"}
+    class client_context:  # noqa: N801 - mirrors the Lambda context attribute
+        custom = {"bedrockAgentCoreToolName": "dispatcher___analyze_all"}
+
+
+@pytest.mark.parametrize("context", [GatewayContext(), None])
+def test_handler_takes_the_tool_arguments_as_the_event(monkeypatch, context):
+    # The Gateway (with a client context) and the directOrchestration worker (without one) both
+    # send {"url", "scan_id"} and read back {"findings": [...]}, which is a JSON object.
+    seen = []
+
+    async def fake(url, scan_id, **_):
+        seen.append((url, scan_id))
+        return {"findings": []}
+
+    monkeypatch.setattr(dispatcher, "run_analyze_all", fake)
+    assert dispatcher.handler({"url": "https://a.com", "scan_id": SCAN}, context) == {
+        "findings": []
+    }
+    assert seen == [("https://a.com", SCAN)]
+
+
+@pytest.mark.parametrize("event", [None, [], "x", {"url": 1}])
+def test_handler_with_a_malformed_event_returns_three_error_findings(event):
+    out = dispatcher.handler(event, None)
+    assert [f["agent"] for f in out["findings"]] == list(SPECIALISTS)
+    assert [f["status"] for f in out["findings"]] == ["error"] * 3
+    json.dumps(out)  # the Gateway needs a JSON-serializable object
+
+
+def test_findings_hide_the_model_hidden_fields():
+    from phish_contracts.models import MODEL_HIDDEN_FINDING_FIELDS
+
+    out = dispatcher.handler({"url": "https://a.com", "scan_id": "../x"}, None)
+    for f in out["findings"]:
+        assert not set(MODEL_HIDDEN_FINDING_FIELDS) & set(f)
+
+
+async def test_each_specialist_logs_its_window(caplog):
+    caplog.set_level("INFO", logger=dispatcher.logger.name)
+    await run(Recorder())
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("specialist ")]
+    assert sorted(line.split("agent=")[1].split()[0] for line in lines) == sorted(SPECIALISTS)
+    assert all("status=ok" in line and "start_ms=" in line for line in lines)
 
 
 def test_read_timeout_is_under_the_deadline_backstop():

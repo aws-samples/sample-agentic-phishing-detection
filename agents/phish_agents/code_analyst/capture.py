@@ -53,7 +53,7 @@ SANITIZED_SCRIPT_LIMIT = 20_000
 MAX_REQUESTS = 150
 # The whole capture, session start, browser and raw HTML fallback included. code_analyst has
 # 35 s (common/server.py) for a model turn to call the tool, this capture and the answer
-# turn. Before 2026-10-26 the capture could run to the tools server's 25 s ceiling (28 s on
+# turn. Before 2026-10-26 the capture could run to the tools MCP server's 25 s ceiling (28 s on
 # the client) and nothing after navigation had a bound, so a page that never loaded plus
 # both model turns ran past the deadline: 11 www.roblox.rw scans ended as `timeout` errors.
 # -c latencyBudgets=true: 18 s, with 3 s kept for the fallback.

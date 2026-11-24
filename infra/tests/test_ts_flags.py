@@ -67,7 +67,7 @@ def test_capture_recovery_is_on_by_default_and_reaches_every_runtime(harness_con
     assert load_config(cdk.App(context=harness_context).node).capture_recovery is True
     on = synth(harness_context, test_env)
     off = synth(harness_context, test_env, captureRecovery="false")
-    for name in ("url_analyst", "brand_visual", "code_analyst", "tools_server", "dispatcher"):
+    for name in ("url_analyst", "brand_visual", "code_analyst", "tools_server"):
         assert runtime_env(on, name)["CAPTURE_RECOVERY"] == "1"
         assert "CAPTURE_RECOVERY" not in runtime_env(off, name)
 
@@ -76,7 +76,7 @@ def test_capture_block_retry_is_off_by_default_and_reaches_every_runtime(harness
     assert load_config(cdk.App(context=harness_context).node).capture_block_retry is False
     off = synth(harness_context, test_env)
     on = synth(harness_context, test_env, captureBlockRetry="true")
-    for name in ("url_analyst", "brand_visual", "code_analyst", "tools_server", "dispatcher"):
+    for name in ("url_analyst", "brand_visual", "code_analyst", "tools_server"):
         assert runtime_env(on, name)["CAPTURE_BLOCK_RETRY"] == "1"
         assert "CAPTURE_BLOCK_RETRY" not in runtime_env(off, name)
 
@@ -124,16 +124,23 @@ def worker(t):
     return fn["Properties"]["Environment"]["Variables"], statements
 
 
+DISPATCHER_FN = "AgentsDispatcher170FB12E"
+
+
 def test_direct_orchestration_env_and_iam(harness_context, test_env, tmp_path):
     env_off, st_off = worker(pipeline(harness_context, test_env, tmp_path))
     env_on, st_on = worker(
         pipeline(harness_context, test_env, tmp_path, directOrchestration="true")
     )
-    assert "ORCHESTRATION_MODE" not in env_off and "DISPATCHER_RUNTIME_ARN" not in env_off
-    assert env_on["ORCHESTRATION_MODE"] == "direct" and env_on["DISPATCHER_RUNTIME_ARN"]
+    assert "ORCHESTRATION_MODE" not in env_off and "DISPATCHER_FUNCTION_ARN" not in env_off
+    assert env_on["ORCHESTRATION_MODE"] == "direct"
+    assert env_on["DISPATCHER_FUNCTION_ARN"] == {"Fn::GetAtt": [DISPATCHER_FN, "Arn"]}
     off_text, on_text = str(st_off), str(st_on)
-    assert "DispatcherRuntime" not in off_text and "bedrock:InvokeModel" not in off_text
-    assert "DispatcherRuntime" in on_text and "bedrock:InvokeModel" in on_text
+    assert "lambda:InvokeFunction" not in off_text and "bedrock:InvokeModel" not in off_text
+    assert "bedrock:InvokeModel" in on_text
+    # Exactly the dispatcher function, by its unqualified ARN (no "<arn>:*").
+    [invoke] = [st for st in st_on if st["Action"] == "lambda:InvokeFunction"]
+    assert invoke["Resource"] == {"Fn::GetAtt": [DISPATCHER_FN, "Arn"]}
     # Still never a specialist Runtime, and no bare wildcard resource.
     for name in ("UrlAnalyst", "BrandVisual", "CodeAnalyst"):
         assert f"{name}Runtime" not in on_text
@@ -159,7 +166,7 @@ def test_local_rdap_only_on_url_analyst(harness_context, test_env):
         assert "LOCAL_RDAP" not in runtime_env(on, name)
 
 
-RUNTIMES = ("url_analyst", "brand_visual", "code_analyst", "tools_server", "dispatcher")
+RUNTIMES = ("url_analyst", "brand_visual", "code_analyst", "tools_server")
 
 
 def cfg(harness_context, **extra):
@@ -313,6 +320,18 @@ def test_agent_budget_flags_reach_every_runtime(harness_context, test_env, extra
     for name in RUNTIMES:
         assert runtime_env(on, name)[key] == value
         assert key not in runtime_env(off, name)
+
+
+def test_latency_budgets_reach_the_dispatcher_lambda(harness_context, test_env):
+    def env(template):
+        (fn,) = template.find_resources(
+            "AWS::Lambda::Function",
+            {"Properties": {"Handler": "phish_agents.dispatcher.handler.handler"}},
+        ).values()
+        return fn["Properties"]["Environment"]["Variables"]
+
+    assert env(synth(harness_context, test_env, latencyBudgets="true"))["LATENCY_BUDGETS"] == "1"
+    assert "LATENCY_BUDGETS" not in env(synth(harness_context, test_env))
 
 
 def _custom_resource_policy_chars(template) -> int:
